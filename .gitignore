@@ -1,0 +1,55 @@
+# Visual Studio / editors
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.rsuser
+
+# .NET build / publish / test output
+[Bb]in/
+[Oo]bj/
+[Aa]rtifacts/
+[Pp]ublish/
+[Tt]est[Rr]esults/
+coverage/
+*.coverage
+*.coveragexml
+coverage.*.xml
+*.trx
+*.nupkg
+*.snupkg
+BenchmarkDotNet.Artifacts/
+
+# Local secrets; safe examples remain versioned
+.env
+.env.*
+!.env.example
+!.env.*.example
+appsettings.Local.json
+appsettings.*.Local.json
+secrets.json
+*.pfx
+*.p12
+*.pem
+*.key
+*.publishsettings
+*.pubxml
+
+# Runtime data / SQL Server files
+[Ll]ogs/
+*.log
+*.log.*
+*.mdf
+*.ldf
+*.ndf
+*.bak
+data-protection-keys/
+
+# OS / temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+*~

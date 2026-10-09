@@ -1,0 +1,55 @@
+# Git root and solution directory are the same.
+name: Auth CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: auth-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: .
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+      # No DefaultConnection, SMTP credentials, or Google secrets in CI.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Restore locked dependencies and audit all packages
+        run: dotnet restore AuthProject.sln --locked-mode
+      - name: Build
+        run: dotnet build AuthProject.sln --configuration Release --no-restore
+      - name: Unit tests
+        run: dotnet test UnitTestAuth/UnitTestAuth.csproj --configuration Release --no-build --logger trx --results-directory TestResults/Unit --collect:'XPlat Code Coverage'
+      - name: Verify Docker for mandatory SQL integration tests
+        run: docker info
+      - name: Integration tests (HTTP and SQL Server Testcontainers)
+        run: dotnet test AuthProject.IntegrationTests/AuthProject.IntegrationTests.csproj --configuration Release --no-build --logger trx --results-directory TestResults/Integration --collect:'XPlat Code Coverage'
+      - name: Report direct and transitive vulnerabilities
+        run: dotnet list AuthProject.sln package --include-transitive --vulnerable --no-restore
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: auth-test-results
+          path: TestResults/
+          if-no-files-found: warn
+          retention-days: 14
