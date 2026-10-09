@@ -1,9 +1,13 @@
 # TDD, xUnit và kiểm soát chất lượng
 
-Tài liệu này là kế hoạch kiểm thử. **Sau P02 có 76 test pass**, chưa có test nghiệp vụ Auth;
+Tài liệu này là kế hoạch kiểm thử. **Sau P04 có 155 test pass**, chưa có test flow endpoint Auth;
 không dùng kết quả test nền tảng để báo hệ thống Auth đã hoàn tất.
 Xem [bằng chứng P01](06-P01-RESULTS.md) và [lệnh chạy local](05-LOCAL-DEVELOPMENT.md#6-chạy-test-p01).
 P02: [bằng chứng Red/Green và giới hạn](07-P02-RESULTS.md).
+P03: [44 unit + 45 HTTP/startup + 16 SQL, Red/Green và migration](08-P03-RESULTS.md).
+Bổ sung dotenv sau P03: 12 unit + 3 startup integration; tổng tại thời điểm đó 120 test.
+P04: [bằng chứng quota/lockout/proxy và Red/Green](09-P04-RESULTS.md), tổng 68 unit + 68 HTTP/startup + 19 SQL.
+RATE-01/02/03 đã kiểm chứng ở P04 qua probe chỉ nằm trong test assembly; endpoint login thực tế thuộc P06.
 
 ## 1. Chu trình cho mỗi lát cắt nghiệp vụ
 
@@ -48,7 +52,7 @@ Provider fake phải test cả thất bại validation/state/nonce; không mock 
 | VAL-01 | P02 | Empty/null/oversized/invalid email/password/OTP/query nhận field errors thống nhất |
 | ERR-01 | P02 | JSON hỏng, exception, 401/403/404/405/415/429 đều đúng ProblemDetails; headers vẫn còn |
 | ERR-02 | P02 | 500 không lộ stack/SQL/secret, traceId nối được với log |
-| DB-01 | P03 | Concurrent email insert chỉ một User; conflict không thành 500 |
+| DB-01 | P03/P05 | Concurrent email insert chỉ một User ở P03; mapping response register ở P05 |
 | DB-02 | P03 | Migration tạo schema từ DB rỗng và rollback transaction không để state nửa chừng |
 | HASH-01 | P03 | Same password → hash khác do salt; correct/wrong verify; rehash giữ password đúng |
 | AUD-01 | P03 | State và audit/outbox cùng commit/rollback; payload không chứa secret trong log |

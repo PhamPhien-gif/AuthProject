@@ -36,6 +36,12 @@ public sealed class OptionsStartupTests
     [InlineData("Auth:Email:Enabled", "true")]
     [InlineData("Auth:Google:Enabled", "true")]
     [InlineData("Auth:EmailOtp:Enabled", "true")]
+    [InlineData("Persistence:Enabled", "true")]
+    [InlineData("Security:PasswordHash:IterationCount", "1000")]
+    [InlineData("BruteForce:RateLimit:MaxPartitions", "0")]
+    [InlineData("BruteForce:RateLimit:Policies:Login:IpPermitLimit", "0")]
+    [InlineData("BruteForce:Lockout:DurationSeconds", "0")]
+    [InlineData("TrustedProxy:Enabled", "true")]
     public async Task Startup_WhenEnabledModuleOrApiLimitsInvalid_FailsWithSafeMessage(string key, string value)
     {
         await using var factory = FoundationFactory.Create().WithWebHostBuilder(builder =>

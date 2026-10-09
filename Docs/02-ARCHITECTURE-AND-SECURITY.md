@@ -1,6 +1,6 @@
 # Kiến trúc và thiết kế bảo mật
 
-**Thiết kế dự kiến, chưa phải chức năng đã triển khai.** Các giá trị timeout/quota là baseline
+**Thiết kế toàn hệ thống; P00–P04 đã triển khai nền tảng, các flow Auth vẫn chờ lệnh.** Các giá trị timeout/quota là baseline
 để test, sẽ điều chỉnh bằng đo đạc ở P13. Xem thứ tự triển khai ở [roadmap](01-IMPLEMENTATION-PLAN.md).
 
 ## 1. Layered Architecture
@@ -82,14 +82,15 @@ SSO nhiều ứng dụng hoặc third-party clients, thiết kế riêng với i
 để thống nhất SDK/packages trước khi viết feature; IDE cần hỗ trợ SDK .NET 10 được pin.
 [Chính sách hỗ trợ](https://dotnet.microsoft.com/en-us/platform/support/policy)
 
-## 3. Schema dự kiến
+## 3. Schema Auth
 
 ID ngẫu nhiên kiểu Guid, timestamp `DateTimeOffset` UTC, lấy giờ qua TimeProvider.
-Các cột dưới đây là tối thiểu, mapping/độ dài cụ thể được chốt khi viết migration P03.
+P03 đã hiện thực các bảng dưới đây. Mapping nằm ở `Data/Configurations/`, migration ở `Data/Migrations/`;
+SQL review nằm ở [001-InitialAuth.sql](Sql/001-InitialAuth.sql).
 
 | Entity | Cột chính | Constraint/index quan trọng |
 |---|---|---|
-| User | Id, Email, NormalizedEmail, DisplayName, PasswordHash nullable, EmailConfirmedAt, Status, MfaEmailEnabled, AuthVersion, FailedLoginCount, LockoutEnd, CreatedAt, UpdatedAt, RowVersion | Unique NormalizedEmail, rowversion |
+| User | Id, Email, NormalizedEmail, DisplayName, PasswordHash nullable, EmailConfirmedAt, Status, MfaEmailEnabled, AuthVersion, FailedLoginCount, FailedLoginWindowStart nullable, LockoutEnd, CreatedAt, UpdatedAt, RowVersion | Unique NormalizedEmail, rowversion |
 | Role | Id, Name, NormalizedName, IsSystem | Unique NormalizedName |
 | UserRole | UserId, RoleId | PK composite, FK restrictive |
 | AuthSession | Id, UserId, AuthVersion, AuthenticatedAt, MfaVerifiedAt, CreatedAt, LastSeenAt, IdleExpiresAt, AbsoluteExpiresAt, RevokedAt, RevokeReason, ClientInfo, RowVersion | UserId + RevokedAt, expiry |
@@ -111,6 +112,14 @@ Transaction bao gồm state + audit/outbox; email/log sink xử lý sau commit. 
 (refresh/logout, last-admin guard) dùng isolation/lock phù hợp và test interleaving thật.
 SQL query dùng LINQ parameterization, projection; paging có limit/order ổn định, tránh N+1 và client evaluation.
 
+P03 dùng email trim + `ToUpperInvariant`; `NormalizedEmail` có binary collation và unique index.
+DbContext chuẩn hóa trước save; digest token/challenge/recovery là hex viết hoa 64 ký tự,
+SQL constraint chặn digest không đúng format. Provider subject dùng binary collation, phân biệt casing.
+`AuthUnitOfWork` dùng transaction SQL mặc định ReadCommitted; P07/P11 phải bổ sung khóa/isolation
+theo flow, không coi thao tác đọc tracked entity là khóa row. Chưa bật automatic retry/replay transaction.
+Seed role có GUID cố định và không tạo tài khoản Admin. Audit/history chặn update/delete qua
+SaveChanges của DbContext; raw SQL/ExecuteUpdate hoặc quyền DB vẫn có thể sửa nên không phải tamper-proof.
+
 ## 4. Password và account lifecycle
 
 - Adapter `PasswordHasher<TUser>` dùng format IdentityV3, PBKDF2 có random salt và version marker;
@@ -129,6 +138,13 @@ SQL query dùng LINQ parameterization, projection; paging có limit/order ổn �
 
 [Identity hashing options](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-configuration),
 [OWASP password storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
+
+P03 xác minh format IdentityV3: PBKDF2-HMAC-SHA512, salt 128 bit, subkey 256 bit,
+210.000 iterations mặc định; cấu hình cho phép 210.000–1.000.000, luôn IdentityV3.
+Hash malformed trả Failed; hash cũ trả NeedsRehash, hash mạnh hơn không bị yêu cầu hạ work factor.
+Rehash/lưu hash khi login thuộc P06. Đo Release cục bộ 20 mẫu: hash p50 85,0 ms, p95 88,6 ms;
+verify p50 86,2 ms, p95 264,2 ms. Đây là microbenchmark máy hiện tại, chưa phải load test/quota P13.
+[Mã nguồn PasswordHasher](https://source.dot.net/Microsoft.Extensions.Identity.Core/PasswordHasher.cs.html).
 
 ## 5. JWT, session và revocation
 
@@ -221,12 +237,40 @@ register/forgot/resend 5 request/15 phút/IP, email send 3/15 phút/account;
 OTP 5 attempt/challenge + 10 verify/phút/IP; refresh 30/phút/session và 60/phút/IP;
 Google start/completion 10/phút/IP. Các limiter xếp lớp, không dùng quota IP thay account counter.
 
-ASP.NET Core limiter bảo vệ process; lockout SQL shared. Nhiều instance cần distributed limiter/edge
+P04 dùng middleware ASP.NET Core với store fixed-window tự giới hạn partition; không đăng ký
+`UseRateLimiter`. Quota hiện tại: API 200/phút/IP; login 10/phút/IP + 30/15 phút/account;
+register và recovery 5/15 phút/IP + 5/15 phút/account; OTP 10/phút/IP; refresh 60/phút/IP
++ 30/phút/session đã xác thực; Google 10/phút/IP. Quota email send/challenge ở trên thuộc P05/P09.
+Global quota áp dụng trước khi đọc body; policy quota lấy từ `[AuthRateLimit(...)]` trên endpoint.
+Account partition dùng HMAC-SHA256 của normalized email với key ngẫu nhiên mỗi process, không giữ email
+thô trong dictionary. Tối đa 10.000 partitions mặc định, key ≤ 128 ký tự; hết capacity trả 429,
+không evict counter còn hiệu lực. Fixed window tính từ request đầu tiên, có thể burst tại ranh giới.
+Restart process reset quota memory; lockout SQL giữ nguyên.
+
+Limiter memory bảo vệ process; lockout SQL shared. Nhiều instance cần distributed limiter/edge
 shared quotas ở P13, không tuyên bố limiter in-memory bảo vệ toàn cluster. Giới hạn memory partitions,
 header/body/key length để attacker không tạo state vô hạn. Login response giống nhau cho account không
 tồn tại/sai password/lockout; logs nội bộ phân biệt reason nhưng không trả cho client.
 Kiểm tra timing bằng benchmark, không hứa timing tuyệt đối giống nhau trên mạng.
 [OWASP Authentication](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html).
+
+Lockout P04 lưu `FailedLoginWindowStart`, tối đa 5 lần sai/900 giây, khóa 900 giây.
+`PasswordAttemptStore` dùng DbContext riêng qua scoped factory; đọc lại user với SQL
+`UPDLOCK, ROWLOCK` trong transaction trước cập nhật, so lại password hash/AuthVersion với snapshot
+đã verify. Counter + audit/outbox cùng commit; lỗi audit rollback toàn bộ. Request khi đang khóa
+không tăng count hoặc kéo dài khóa. Hết khóa cho thử lại, password đúng reset count/window.
+`PasswordCredentialGate` validate input, luôn verify hash; unknown/Google-only dùng dummy hash cùng
+work factor. Unknown/wrong/locked/disabled/unverified đều trả `AUTH_INVALID_CREDENTIALS` 401.
+Thành công mới là primary factor (`PasswordVerified`, outcome Pending); P06/P09 hoàn tất phiên/MFA.
+Session quota chỉ lấy `sid` từ principal server đã xác thực; P06 cần đặt authentication trước
+middleware policy. P07 phải enforce quota session của anonymous refresh sau khi tra token đã xác minh,
+không dùng token hoặc session ID chưa tin cậy làm key.
+
+Trusted proxy mặc định tắt; loại bỏ implicit loopback trust. Khi bật phải khai báo
+`KnownProxies`/`KnownNetworks`, không chấp nhận `/0`, `ForwardLimit` 1–5. Chỉ xử lý
+`X-Forwarded-For` + `X-Forwarded-Proto` với số phần tử khớp nhau; peer không được tin cậy bị bỏ qua.
+Middleware chạy trước quota IP và HTTPS redirect; proxy phải xử lý header từ client đúng cách.
+Tham khảo [Microsoft forwarded headers](https://learn.microsoft.com/en-gb/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0).
 
 ## 10. Audit và vận hành
 
@@ -241,6 +285,13 @@ file sink tạm lỗi thì retry sau, không rollback state đã commit. Worker 
 cùng xử lý; log delivery at-least-once, eventId giúp deduplicate. Giám sát disk full/outbox backlog.
 Không chỉ gọi `ILog.Info` rồi tuyên bố audit durable: log4net sink có thể báo lỗi nội bộ.
 [Apache log4net appenders](https://logging.apache.org/log4net/manual/configuration/appenders.html).
+
+P03 có `IAuditWriter.Stage` tạo audit và outbox cùng DbContext, chưa tự save/commit hoặc gọi file sink.
+Metadata chỉ nhận session ID, authentication method và count; không nhận dictionary/text tự do.
+TraceId phải lấy từ server, không dùng request body/header credentials. Outbox audit được mã hóa
+bằng Data Protection purpose `AuthProject.AuditOutbox.v1`. Log4net adapter xuất JSON vào RollingFileAppender
+(10 MB/file, 10 backup), mặc định tắt; chưa có worker, retry, retention theo ngày hoặc delivery acknowledgment.
+Key directory có cấu hình/ignore; ACL, mã hóa key lúc lưu và shared key store production là gate P13.
 
 Baseline retention dự kiến: login history 90 ngày, audit 365 ngày, local file 30 ngày theo size/time;
 chốt theo yêu cầu vận hành trước production. Quyền đọc/sửa file và audit DB được giới hạn;

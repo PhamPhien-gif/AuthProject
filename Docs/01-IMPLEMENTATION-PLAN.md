@@ -1,8 +1,10 @@
 # Kế hoạch triển khai Auth
 
-Ngày lập: 09/10/2026. Trạng thái: **P00–P02 đã triển khai, P03–P13 chờ lệnh**.
+Ngày lập: 09/10/2026. Trạng thái: **P00–P04 đã triển khai, P05–P13 chờ lệnh**.
 Kết quả và giới hạn kiểm chứng P01: [báo cáo P01](06-P01-RESULTS.md).
 Kết quả và cách mở rộng P02: [báo cáo P02](07-P02-RESULTS.md).
+Kết quả persistence, hashing và audit: [báo cáo P03](08-P03-RESULTS.md).
+Kết quả chống brute force, lockout và proxy: [báo cáo P04](09-P04-RESULTS.md).
 Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant hoặc microservice.
 
 ## 1. Nguyên tắc điều khiển phạm vi
@@ -21,8 +23,8 @@ Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant h
 | P00 | Nền tảng | Docs, ignore, solution, khung layer/xUnit | — | Đã khởi tạo |
 | P01 | Bắt buộc | .NET 10 LTS, dependencies, integration harness | P00 | Đã triển khai; xem báo cáo kiểm chứng |
 | P02 | Bắt buộc | DTO validation, lỗi thống nhất, configuration | P01 | Hoàn tất — 76 test pass toàn solution |
-| P03 | Bắt buộc | EF/SQL, password hashing, audit nền tảng | P02 | Chờ lệnh |
-| P04 | Bắt buộc | Rate limiting, lockout, trusted proxy | P03 | Chờ lệnh |
+| P03 | Bắt buộc | EF/SQL, password hashing, audit nền tảng | P02 | Hoàn tất — 120 test pass sau bổ sung dotenv |
+| P04 | Bắt buộc | Rate limiting, lockout, trusted proxy | P03 | Hoàn tất — 155 test pass toàn solution |
 | P05 | Auth cơ bản | Email, Register, Verify Email | P04 | Chờ lệnh |
 | P06 | Auth cơ bản | Login, JWT, authentication, GetMe | P05 | Chờ lệnh |
 | P07 | Auth cơ bản | Rotation, reuse detection, logout/revoke | P06 | Chờ lệnh |
@@ -47,7 +49,7 @@ Ghi audit bắt đầu ở P03 và được nối vào từng flow ngay khi flow
 - [x] Bỏ WeatherForecast và test rỗng từ template.
 - [x] Thêm `.gitignore`, `.editorconfig`, `.env.example`, pin SDK 8 hiện có.
 - [x] Viết Docs cho kiến trúc, API, TDD, local và roadmap.
-- [x] P01–P02 đã triển khai theo lệnh riêng; P03–P13 chưa thực hiện.
+- [x] P01–P04 đã triển khai theo lệnh riêng; P05–P13 chưa thực hiện.
 
 Nghiệm thu: restore/build được; runner xUnit chạy được nhưng chưa có test; ignore giữ lại
 source, Docs và file example, loại bỏ output/secrets. Kết quả thực tế xem [local](05-LOCAL-DEVELOPMENT.md).
@@ -107,6 +109,15 @@ Red: normalized email unique kể cả concurrent insert; rollback; hash không 
 salt khác nhau; verify/rehash; audit không chứa secret; migration chạy được trên SQL Server test.
 Nghiệm thu: chưa cập nhật database local thật; integration test chứng minh constraint/transaction.
 
+Kết quả P03: 44 unit + 45 HTTP/startup + 16 SQL = **105 passed**, 0 failed/skipped;
+Release build 0 warning/error. Có 11 bảng Auth, repository LINQ, unit of work, IdentityV3
+PBKDF2-HMAC-SHA512 210.000 iterations, audit SQL/outbox Data Protection và log4net adapter.
+Migration/script tạo schema rỗng và replay idempotent đã kiểm chứng trên SQL Express test riêng.
+Database `AuthProject` chưa được cập nhật; chưa có endpoint Auth hoặc outbox worker.
+Chi tiết Red/Green, cấu hình và giới hạn: [kết quả P03](08-P03-RESULTS.md).
+Theo yêu cầu sau P03, đã thêm dotenv loader cho Development/EF CLI; regression tăng lên
+56 unit + 48 HTTP/startup + 16 SQL = **120 passed**. Không thêm feature P04 hoặc cập nhật DB ứng dụng.
+
 ### P04 — Chống brute force trước khi mở login
 
 1. Tạo policy limiter riêng cho login/register, OTP, refresh, recovery, Google và API chung.
@@ -118,6 +129,14 @@ Nghiệm thu: chưa cập nhật database local thật; integration test chứng
 Red: request vượt quota → 429; lockout boundary theo fake clock; burst song song không vượt count;
 giả `X-Forwarded-For` không đổi partition; account enumeration không lộ qua body/status.
 Nghiệm thu: không khóa vô thời hạn; có cooldown; policy triển khai nhiều instance được ghi rõ.
+
+Kết quả P04: **68 unit + 68 HTTP/startup + 19 SQL = 155 passed**, 0 failed/skipped;
+Release build 0 warning/error. Limiter fixed-window có giới hạn partition, quota IP/account/session,
+429 + Retry-After; SQL lockout và audit/outbox cùng transaction, dummy hash và lỗi credentials chung.
+Forwarded headers chỉ được nhận từ proxy/network cấu hình rõ ràng. Migration `AddLockoutFailureWindow`
+và script incremental đã có; chưa update DB `AuthProject`. Limiter memory chỉ bảo vệ từng process;
+session quota trên anonymous refresh sẽ nối sau khi xác minh token ở P07.
+Chi tiết TDD, cấu hình và giới hạn: [kết quả P04](09-P04-RESULTS.md).
 
 ### P05 — Email và đăng ký/xác minh email
 

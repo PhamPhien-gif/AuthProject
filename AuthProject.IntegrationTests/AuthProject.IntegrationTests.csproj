@@ -18,5 +18,7 @@
     <Using Include="Xunit" />
     <ProjectReference Include="..\AuthProject\AuthProject.csproj" />
     <Compile Include="..\TestSupport\**\*.cs" Link="TestSupport\%(RecursiveDir)%(Filename)%(Extension)" />
+    <None Include="..\Docs\Sql\001-InitialAuth.sql" Link="Sql\001-InitialAuth.sql" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Docs\Sql\002-P04-Lockout.sql" Link="Sql\002-P04-Lockout.sql" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

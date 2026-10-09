@@ -3,10 +3,13 @@ using AuthProject.Exceptions;
 using AuthProject.Middlewares;
 
 var builder = WebApplication.CreateBuilder(args);
+LocalDotEnv.AddToConfiguration(builder.Configuration, builder.Environment.EnvironmentName, builder.Environment.ContentRootPath);
 
 // Add services to the container.
 
 builder.Services.AddApiFoundation(builder.Configuration);
+builder.Services.AddAuthPersistence(builder.Configuration, builder.Environment);
+builder.Services.AddBruteForceProtection(builder.Configuration);
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -14,6 +17,7 @@ builder.Services.AddSwaggerGen();
 var app = builder.Build();
 
 app.UseExceptionHandler(new ExceptionHandlerOptions { SuppressDiagnosticsCallback = _ => true });
+app.UseForwardedHeaders();
 app.UseStatusCodePages(async statusContext =>
 {
     var context = statusContext.HttpContext;
@@ -22,7 +26,9 @@ app.UseStatusCodePages(async statusContext =>
 });
 app.UseRouting();
 app.UseRequestTimeouts();
+app.UseMiddleware<GlobalRateLimitMiddleware>();
 app.UseMiddleware<RequestFoundationMiddleware>();
+app.UseMiddleware<AuthRateLimitMiddleware>();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
