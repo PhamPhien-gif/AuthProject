@@ -1,6 +1,6 @@
 # Kiến trúc và thiết kế bảo mật
 
-**Thiết kế toàn hệ thống; P00–P10 đã triển khai, gồm password recovery, MFA Email OTP và Google/OIDC; quản trị RBAC và delivery audit chờ bước tiếp theo.** Các giá trị timeout/quota là baseline
+**Thiết kế toàn hệ thống; P00–P11 đã triển khai, gồm password recovery, MFA Email OTP, Google/OIDC và quản trị RBAC; history/audit API và delivery audit chờ P12.** Các giá trị timeout/quota là baseline
 để test, sẽ điều chỉnh bằng đo đạc ở P13. Xem thứ tự triển khai ở [roadmap](01-IMPLEMENTATION-PLAN.md).
 
 ## 1. Layered Architecture
@@ -405,3 +405,40 @@ UI/frontend; multi-tenant; permission catalog động; OAuth server cho bên th�
 SMS OTP; SSO doanh nghiệp; impersonation; account deletion/export; change email;
 dịch vụ hỗ trợ thủ công lấy lại account khi mất toàn bộ factor. Thiết kế extension points đủ nhỏ,
 chưa tạo abstractions chỉ để dự phòng các feature này.
+
+## 12. RBAC và quản trị P11
+
+AuthPolicies.AdminRead/AdminWrite là named policies với role Admin và SQL evidence handler;
+JwtBearerCallbacks vẫn thay role claims bằng role hiện tại từ SQL mỗi request. Handler không
+tin role/amr tự khai báo trong JWT. Read cần Active/verified/session/version hợp lệ, MFA enrolled
+và MfaVerifiedAt trong session SQL. Write cần thêm primary + factor recent <300s theo EmailOtp options.
+Các luồng GetMe/login/enrollment/session/profile không yêu cầu Admin policy, để Admin mới có thể enroll.
+[ASP.NET Core policy authorization](https://learn.microsoft.com/en-us/aspnet/core/security/authorization/policies?view=aspnetcore-10.0).
+
+Store mutation recheck quyền sau khi khóa, không chỉ dựa vào policy ở đầu HTTP request.
+Transaction lấy exclusive sp_getapplock resource AuthProject.AdminGovernance.v1 trong database,
+owner Transaction, timeout 5s; mọi role/status mutation và bootstrap dùng cùng lock trước user locks.
+Lock được thả khi commit/rollback; không replay transaction tự động, timeout trả SERVICE_UNAVAILABLE.
+Khóa này chia sẻ giữa các instance cùng DB. Sau đó khóa actor/target theo thứ tự GUID ổn định,
+kiểm tra active verified Admin count trong transaction trước disable/demote.
+[SQL Server sp_getapplock](https://learn.microsoft.com/en-us/sql/relational-databases/system-stored-procedures/sp-getapplock-transact-sql).
+
+Active Admin trong invariant là role Admin + Status Active + email verified; không tính account disabled/pending.
+Count không dựa vào MFA enrollment/lockout, vì chúng có thể thay đổi và có flow khôi phục/enrollment riêng.
+Không xóa/disable/demote Admin active cuối cùng; không có delete-user endpoint. Không tự thay role/status của mình;
+no-op idempotent được giữ, nếu thực sự đổi phải do Admin khác có fresh MFA session.
+User/Admin catalog có GUID cố định và không có API đổi tên/xóa protected role hoặc CRUD role tùy ý.
+
+Thay role/status thực sự tăng AuthVersion và revoke toàn bộ session/refresh, consume pending challenges;
+audit và protected outbox cùng transaction. No-op không revoke hoặc tạo event giả.
+Status Active chỉ cho email đã confirmed, không phải đường tắt verification. Profile chỉ sửa DisplayName
+của validated actor, không nhận userId/role/email/status; không đổi AuthVersion/credentials.
+User session endpoints vẫn owner-scoped, Admin không bypass ownership.
+
+Bootstrap là command vận hành --bootstrap-admin, không hosted startup job/public HTTP endpoint.
+Credentials chỉ nhận từ process environment, validate RegisterRequest, hash bằng service hiện có.
+Command tạo Active/verified User+Admin bằng quyền của operator (xác minh email ngoài hệ thống là trách nhiệm operator),
+không phát session/token và không auto-enroll MFA. Chạy lại giữ nguyên password/MFA, không reset credentials.
+Email trùng non-admin hoặc Admin disabled/pending bị từ chối, không tự adopt tài khoản có sẵn.
+AdminBootstrapped có ActorUserId=null, SubjectId account, server traceId; không chứa bootstrap secret.
+No migration: dùng bảng role/user/session/audit P03–P10; enums audit mới lưu tên string trong schema hiện có.

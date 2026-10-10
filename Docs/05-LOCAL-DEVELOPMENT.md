@@ -1,6 +1,6 @@
 ﻿# Chạy local và cấu hình
 
-## 1. Trạng thái hiện tại: P10
+## 1. Trạng thái hiện tại: P11
 
 `global.json` chọn SDK **10.0.401** + latestPatch, mọi project target `net10.0` qua
 `Directory.Build.props`. IDE phải hỗ trợ SDK này; CLI là cách build đã được kiểm chứng.
@@ -9,7 +9,7 @@ API có Swagger, DTO/FluentValidation, ProblemDetails, exception handler, option
 đã có entities, DbContext/migration, repositories, password hasher, audit/outbox và log4net adapter;
 đã có endpoint Register/Verify/Resend và SMTP email worker. Registration, persistence và file sink mặc định tắt.
 Rate limiting mặc định bật; đã có SQL lockout, credential gate và trusted proxy options.
-Swagger có Register/Login/GetMe, refresh/logout/session, password recovery, MFA Email OTP và Google/OIDC.
+Swagger có Register/Login/GetMe, refresh/logout/session, password recovery, MFA Email OTP, Google/OIDC và quản trị RBAC.
 JWT mặc định tắt cho đến khi đủ persistence, issuer/audience/RSA private key.
 Không cần kết nối SQL/SMTP/Google để build hoặc mở Swagger; SQL chỉ cần cho nhóm test SQL.
 
@@ -697,6 +697,84 @@ Test dùng fake Google discovery/JWKS/token endpoint, PKCE và ID token ký RSA 
 SQL Express dùng AuthProject_Test_GUID, không DefaultConnection. SMTP fake, không gửi email thật.
 Chưa chạy consent/cookie/Google reauthentication trên browser thật với credentials của bạn;
 đặc biệt cần kiểm tra provider có trả signed auth_time khi max_age=0. Thiếu claim sẽ fail closed.
-[Kết quả P10 và lệnh test](15-P10-RESULTS.md). P11–P13 tiếp tục chờ lệnh.
+[Kết quả P10 và lệnh test](15-P10-RESULTS.md). P11 đã triển khai tại mục 17; P12–P13 chờ lệnh.
 Regression Release P10: **140 unit + 141 HTTP/startup + 208 SQL = 489 passed**, 0 failed/skipped;
 build 0 warning/error và restore --locked-mode pass.
+
+## 17. RBAC và bootstrap Admin P11
+
+Không có migration/package mới P11; database cần schema đã cập nhật tới P10.
+Không bootstrap tự động lúc startup và không có public /admin/bootstrap endpoint.
+API Admin dùng JWT/Persistence và account đã enroll MFA; cấu hình EmailOtp/Email/SMTP/Refresh
+theo mục 15 để hoàn thành enrollment/login/step-up. Không cần bật Google để dùng RBAC.
+
+### Tạo Admin bằng command vận hành
+
+Bootstrap chỉ dành cho operator có quyền chạy ứng dụng và truy cập database. Kiểm tra DefaultConnection
+trước khi tự chạy command: đây là thao tác **tạo account trên database ứng dụng**, khác test cô lập.
+Operator chịu trách nhiệm xác minh quyền sở hữu mailbox ngoài hệ thống; account bootstrap Active/verified,
+password hash, roles User+Admin, chưa MFA, không có session/token. Chạy lại không reset password/MFA;
+email trùng non-admin hoặc Admin disabled/pending → RESOURCE_CONFLICT, không tự promote hoặc khôi phục.
+Muốn nâng role một User có sẵn, dùng API của Admin khác sau khi đã bootstrap/enroll.
+
+Chạy trong terminal local riêng, từ solution root. Không gõ password literal vào command/history.
+Connection string vẫn đọc .env, còn ba key AUTHPROJECT_BOOTSTRAP_ADMIN_* chỉ đọc process environment:
+
+```powershell
+$env:DOTNET_ENVIRONMENT = 'Development'
+$env:AUTHPROJECT_BOOTSTRAP_ADMIN_EMAIL = 'your-admin@example.com'
+$env:AUTHPROJECT_BOOTSTRAP_ADMIN_DISPLAY_NAME = 'Local Admin'
+$p11Password = Read-Host 'Bootstrap password (15–128 ký tự)' -AsSecureString
+$p11PasswordPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($p11Password)
+try {
+    $env:AUTHPROJECT_BOOTSTRAP_ADMIN_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($p11PasswordPointer)
+    dotnet run --project AuthProject --configuration Release --no-launch-profile -- --bootstrap-admin
+} finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p11PasswordPointer)
+    $p11Password.Dispose()
+    Remove-Item Env:AUTHPROJECT_BOOTSTRAP_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+    Remove-Item Env:AUTHPROJECT_BOOTSTRAP_ADMIN_EMAIL -ErrorAction SilentlyContinue
+    Remove-Item Env:AUTHPROJECT_BOOTSTRAP_ADMIN_DISPLAY_NAME -ErrorAction SilentlyContinue
+}
+```
+
+DOTNET_ENVIRONMENT được đặt ngoài .env để loader Development đọc connection/key config.
+Production dùng process/secret store và connection environment riêng, không nạp .env.
+Command validate RegisterRequest giống registration, hash qua PasswordHashService, audit AdminBootstrapped
+và outbox cùng transaction; email collision/bootstrap concurrency có SQL locks.
+Exit 0: created/already exists; exit 1: public error code, không raw exception/secret.
+Không đặt bootstrap password vào .env, appsettings, source hoặc command args. Không chạy command lại
+để reset credential; dùng recovery/change flow phù hợp. Phiên triển khai này chưa bootstrap DB của bạn.
+
+### Enrollment, đăng nhập và quyền quản trị
+
+1. Bật các cấu hình JWT/Refresh/EmailOtp/SMTP đầy đủ rồi chạy API HTTPS. GET csrf và login bằng account bootstrap.
+   Chưa enrolled: login/GetMe vẫn hoạt động, GET admin users/roles trả 403 AUTH_MFA_REQUIRED.
+2. Trong thời gian recent primary <300s, enroll/enable MFA theo mục 15; lưu recovery codes một lần.
+   Enable revoke phiên cũ, nên đăng nhập lại và verify OTP/recovery để có MFA session.
+3. GET `/api/v1/admin/users?page=1&pageSize=20&status=Active&search=...` hoặc `/api/v1/admin/roles`
+   với bearer → 200. Response user chỉ profile/status/MFA/roles, không hash/token/AuthVersion.
+4. PUT `/api/v1/admin/users/<userId>/roles` JSON `{"roleNames":["User","Admin"]}` hoặc PATCH
+   `/api/v1/admin/users/<userId>/status` JSON `{"status":"Disabled"}`/`{"status":"Active"}`,
+   với bearer + CSRF/origin/cookies và primary/factor proof còn recent → 204.
+5. Nếu proof stale: password MFA step-up mục 15 hoặc Google reauthentication mục 16 rồi verify factor.
+   Refresh giữ session nhưng không renew proof; refresh tuần tự nếu access token hết hạn.
+6. Thay role/status thật tăng AuthVersion, revoke mọi session/refresh và pending challenges của target.
+   Target phải login/MFA lại; role mới lấy từ SQL. Grant Admin không tự enroll MFA cho target.
+
+Admin không tự đổi role/status của mình. Last active verified Admin không thể disabled/demoted
+(AUTH_LAST_ADMIN); để chuyển quyền, grant Admin cho một account verified khác, enroll và login MFA
+account đó, rồi dùng account đó chỉnh Admin cũ. Role/status no-op chỉ 204, không revoke.
+Status Active không thay email verification; target chưa confirmed → RESOURCE_CONFLICT.
+Role catalog cố định User/Admin, không rename/delete/custom-role CRUD. Không có delete-user API P11.
+
+### Profile và phạm vi còn lại
+
+PATCH `/api/v1/users/me` với bearer + CSRF khi Refresh bật, JSON `{"displayName":"New name"}` → 204.
+Chỉ sửa name của validated actor, không email/roles/status; role/userId injection bị reject.
+Gọi GET `/api/v1/auth/me` để lấy profile mới. Không tăng AuthVersion/revoke khi chỉ sửa display name.
+Session list/revoke vẫn owner-scoped như P07; Admin không được revoke session người khác qua route cá nhân.
+History cá nhân/audit admin API, delivery log4net và cleanup vẫn chờ P12.
+
+[Kết quả P11, TDD và kiểm thử](16-P11-RESULTS.md). Không gửi SMTP/Google thật trong automated tests.
+Release: **158 unit + 145 HTTP/startup + 235 SQL = 538 passed**, 0 failed/skipped; build 0 warning/error.

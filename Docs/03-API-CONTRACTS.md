@@ -1,6 +1,6 @@
 # API, DTO và lỗi thống nhất
 
-**P10 đã triển khai các flow P05–P09 và Google/OIDC; endpoint quản trị chờ P11.** Prefix `/api/v1`.
+**P11 đã triển khai các flow P05–P10 và quản trị RBAC; history/audit query chờ P12.** Prefix `/api/v1`.
 JSON camelCase, UTC ISO-8601, ID opaque/Guid. Thành công dùng DTO trực tiếp, không bọc mọi
 response trong `success/message/data`; lỗi dùng `application/problem+json` thống nhất.
 
@@ -42,9 +42,10 @@ response trong `success/message/data`; lỗi dùng `application/problem+json` th
 | DELETE /auth/google/link | Authenticated + step-up/CSRF | 204 + revoke; không được xóa login method cuối | P10 |
 | GET /users/me/login-history | Authenticated | History chỉ actor, phân trang | P12 |
 | GET /admin/users | Admin + MFA session | Danh sách user, phân trang/filter | P11 |
-| PATCH /admin/users/{userId}/status | Admin + step-up | ChangeUserStatusRequest → 204 + revoke | P11 |
+| PATCH /users/me | Authenticated + CSRF khi Refresh bật | UpdateProfileRequest.displayName → 204, chỉ actor | P11 |
+| PATCH /admin/users/{userId}/status | Admin + step-up + CSRF khi Refresh bật | ChangeUserStatusRequest → 204 + revoke | P11 |
 | GET /admin/roles | Admin + MFA session | Role catalog | P11 |
-| PUT /admin/users/{userId}/roles | Admin + step-up | SetUserRolesRequest → 204 + revoke | P11 |
+| PUT /admin/users/{userId}/roles | Admin + step-up + CSRF khi Refresh bật | SetUserRolesRequest → 204 + revoke | P11 |
 | GET /admin/audit-logs | Admin + MFA session | Audit filters + pagination | P12 |
 
 Mặc định role catalog chỉ seed User/Admin; custom role CRUD/permission editor chưa cần khi chưa có business feature.
@@ -82,6 +83,9 @@ Session delete và logout-all require access JWT; logout hiện tại vẫn làm
 | GoogleCompleteRequest.ticket | Opaque bounded, one-use, expiry, browser correlation |
 | SetUserRolesRequest.roleNames | Required, không trùng, tối đa 10; role phải thuộc catalog |
 | ChangeUserStatusRequest.status | Allowlist Active/Disabled; không sửa trực tiếp trạng thái verification |
+| UpdateProfileRequest.displayName | Required, sau trim 1–100 ký tự; không nhận actor/userId/email/roles/status |
+| UserTargetRequest.userId | Guid khác rỗng, role/status target chỉ dùng ở API Admin |
+| AdminUserQuery.status/search | status absent hoặc Active/Disabled/PendingVerification; search tối đa 100 ký tự; paging chung |
 | Paging.page/pageSize | page ≥ 1, pageSize 1–100, mặc định 20 |
 | HistoryQuery.from/to/sort | Cả hai thời gian hoặc không có; UTC, from ≤ to, tối đa 90 ngày; sort occurredAtAsc/occurredAtDesc |
 
@@ -296,3 +300,25 @@ P06/P04; test P02 kiểm chứng response 401/403/429 và bảo toàn protocol h
 
 Admin không mặc nhiên bypass ownership mọi route. Policies lấy actor từ validated principal,
 không request body. Mọi endpoint nghiệp vụ mới mặc định authenticated, policy explicit.
+
+### Hợp đồng P11 đã triển khai
+
+GET /admin/users nhận page/pageSize/status/search, sort cố định CreatedAt rồi Id, search substring
+email hoặc displayName; trả PagedResponse<AdminUserResponse>. Fields: id/email/displayName/status/
+mfaEnabled/createdAt/roles, không hash/authVersion/token. GET /admin/roles trả RoleResponse[]
+id/name/isSystem cho User/Admin; không có create/rename/delete role endpoint.
+
+AdminRead cần role Admin hiện tại + enrollment/factor SQL. AdminWrite thêm recent primary/factor.
+Không có bearer → 401 AUTH_UNAUTHENTICATED; User → 403 AUTH_FORBIDDEN;
+Admin chưa enrolled → 403 AUTH_MFA_REQUIRED; stale primary/factor → 403 AUTH_STEP_UP_REQUIRED.
+Session/version/revoked MFA mismatch vẫn bị JwtBearer từ chối; forged role/amr không thay được SQL.
+
+PUT roles body {"roleNames":["User","Admin"]}, PATCH status {"status":"Disabled"} hoặc Active.
+Unknown sensitive field bị reject, role allowlist/case chính xác User/Admin, không empty/duplicate.
+Invalid DTO → 400; target không tồn tại → 404; last Admin → 409 AUTH_LAST_ADMIN;
+Active cho email chưa verified → 409 RESOURCE_CONFLICT. Self role/status change thực sự → 403;
+no-op → 204, không revoke. Thay đổi thật → 204, tăng version/revoke/audit atomic; JWT/refresh cũ mất hiệu lực.
+
+PATCH /users/me body {"displayName":"New name"}, không nhận userId để chọn owner.
+Sau 204 gọi GET /auth/me để lấy profile mới. Name đổi không logout hoặc đổi credentials.
+Bootstrap chỉ CLI, không có route /admin/bootstrap. History/audit endpoints trong catalog vẫn là kế hoạch P12.

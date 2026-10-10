@@ -1,6 +1,6 @@
 ﻿# Kế hoạch triển khai Auth
 
-Ngày lập: 09/10/2026. Cập nhật P10: 10/10/2026. Trạng thái: **P00–P10 đã triển khai, P11–P13 chờ lệnh**.
+Ngày lập: 09/10/2026. Cập nhật P11: 10/10/2026. Trạng thái: **P00–P11 đã triển khai, P12–P13 chờ lệnh**.
 Kết quả và giới hạn kiểm chứng P01: [báo cáo P01](06-P01-RESULTS.md).
 Kết quả và cách mở rộng P02: [báo cáo P02](07-P02-RESULTS.md).
 Kết quả persistence, hashing và audit: [báo cáo P03](08-P03-RESULTS.md).
@@ -11,6 +11,7 @@ Kết quả rotation/reuse/logout/session/CSRF: [báo cáo P07](12-P07-RESULTS.m
 Kết quả password recovery/change/reauthenticate: [báo cáo P08](13-P08-RESULTS.md).
 Kết quả MFA Email OTP/enrollment/step-up/recovery: [báo cáo P09](14-P09-RESULTS.md).
 Kết quả Google/OIDC, link/unlink và reauthentication: [báo cáo P10](15-P10-RESULTS.md).
+Kết quả RBAC, quản trị user/role và bootstrap Admin: [báo cáo P11](16-P11-RESULTS.md).
 Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant hoặc microservice.
 
 ## 1. Nguyên tắc điều khiển phạm vi
@@ -37,7 +38,7 @@ Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant h
 | P08 | Vòng đời tài khoản | Forgot/Reset/Change password | P07 | Hoàn tất — 369 test pass toàn solution |
 | P09 | MFA | Email OTP, enrollment, disable, recovery | P08 | Hoàn tất — 435 test pass toàn solution |
 | P10 | Social login | Google OAuth 2.0/OIDC, linking | P09 | Hoàn tất — 489 test pass toàn solution |
-| P11 | Authorization | RBAC, policy, quản trị user/role | P10 | Chờ lệnh |
+| P11 | Authorization | RBAC, policy, quản trị user/role | P10 | Hoàn tất — 538 test pass toàn solution |
 | P12 | Quan sát | Login History, AuditLog API, log4net delivery | P11 | Chờ lệnh |
 | P13 | Phát hành | E2E, security regression, Swagger, vận hành | P12 | Chờ lệnh |
 
@@ -55,7 +56,7 @@ Ghi audit bắt đầu ở P03 và được nối vào từng flow ngay khi flow
 - [x] Bỏ WeatherForecast và test rỗng từ template.
 - [x] Thêm `.gitignore`, `.editorconfig`, `.env.example`, pin SDK 8 hiện có.
 - [x] Viết Docs cho kiến trúc, API, TDD, local và roadmap.
-- [x] P01–P10 đã triển khai theo lệnh riêng; P11–P13 chưa thực hiện.
+- [x] P01–P11 đã triển khai theo lệnh riêng; P12–P13 chưa thực hiện.
 
 Nghiệm thu: restore/build được; runner xUnit chạy được nhưng chưa có test; ignore giữ lại
 source, Docs và file example, loại bỏ output/secrets. Kết quả thực tế xem [local](05-LOCAL-DEVELOPMENT.md).
@@ -288,6 +289,17 @@ Release: **140 unit + 141 HTTP/startup + 208 SQL = 489 passed**, 0 failed/skippe
 Red: role matrix 401/403/200; IDOR; User gửi role=Admin; JWT chứa quyền cũ; concurrent last-admin removal;
 Admin thiếu step-up; default role luôn là User.
 Nghiệm thu: authorization dựa vào dữ liệu tin cậy, không tin role từ request/client.
+
+Kết quả P11: policy tập trung Admin.Read/Admin.Write dùng role và session/MFA proof SQL;
+GET admin users/roles, PUT user roles, PATCH user status và PATCH profile chỉ actor.
+Mutation recheck quyền trong transaction, tăng AuthVersion/revoke sessions/refresh/challenges + audit/outbox.
+SQL transaction application lock bảo vệ last-active-Admin giữa các instance; không tự sửa role/status của mình.
+Role catalog User/Admin được bảo vệ, không CRUD role động. Active không thay được email verification.
+Command --bootstrap-admin nhận credentials từ process environment, không public endpoint,
+idempotent và không tự promote tài khoản User trùng email. Admin mới phải enroll MFA trước khi quản trị.
+Không migration mới; chưa chạy bootstrap/update DB ứng dụng, Google/SMTP thật hoặc triển khai P12.
+[Bằng chứng TDD, test và cách dùng P11](16-P11-RESULTS.md).
+Release: **158 unit + 145 HTTP/startup + 235 SQL = 538 passed**, 0 failed/skipped; build 0 warning/error.
 
 ### P12 — Login History và AuditLog hoàn chỉnh
 

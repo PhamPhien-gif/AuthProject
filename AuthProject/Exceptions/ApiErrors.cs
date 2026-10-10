@@ -24,6 +24,7 @@ public static class ApiErrors
         new("AUTH_CSRF_INVALID", 403, "Yêu cầu bảo vệ CSRF không hợp lệ."),
         new("AUTH_FORBIDDEN", 403, "Bạn không có quyền thực hiện yêu cầu này."),
         new("AUTH_STEP_UP_REQUIRED", 403, "Yêu cầu xác minh lại danh tính."),
+        new("AUTH_MFA_REQUIRED", 403, "Yêu cầu đăng ký và xác minh MFA để dùng quyền quản trị."),
         new("RESOURCE_NOT_FOUND", 404, "Không tìm thấy tài nguyên."),
         new("METHOD_NOT_ALLOWED", 405, "HTTP method không được hỗ trợ."),
         new("RESOURCE_CONFLICT", 409, "Tài nguyên bị xung đột."),

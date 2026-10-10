@@ -1,6 +1,6 @@
 ﻿# TDD, xUnit và kiểm soát chất lượng
 
-Tài liệu này là kế hoạch kiểm thử. **P10 đã có test các flow P05–P09 và Google/OIDC**; RBAC quản trị còn chờ P11;
+Tài liệu này là kế hoạch kiểm thử. **P11 đã có test các flow P05–P10 và RBAC quản trị**; history/audit query/delivery chờ P12;
 không dùng kết quả test nền tảng để báo hệ thống Auth đã hoàn tất.
 Xem [bằng chứng P01](06-P01-RESULTS.md) và [lệnh chạy local](05-LOCAL-DEVELOPMENT.md#6-chạy-test-p01).
 P02: [bằng chứng Red/Green và giới hạn](07-P02-RESULTS.md).
@@ -25,6 +25,11 @@ P10: [kết quả Google/OIDC và TDD](15-P10-RESULTS.md). Unit validated identi
 raw provider error logging và reauthentication callback chậm có Red → Green ghi TRX riêng;
 password reauthentication sau Google cũng được mở rộng test Red → Green để cập nhật primary method.
 Fake backchannel kiểm tra middleware thật + PKCE và signed ID token, không gọi Google/network thật.
+P11: [bằng chứng RBAC và bootstrap](16-P11-RESULTS.md). 12 unit proof cases và 4 SQL store
+cases được viết trước rules/store; Red thiếu AdminAccessRules/AdminStore, Green sau triển khai.
+HTTP/policy, CLI process, DTO, rollback và forged-claim cases được bổ sung sau, không tuyên bố
+tất cả tests viết trước implementation. SQL thật kiểm tra concurrent admin removal và bootstrap,
+mutation rollback, revocation; CLI chạy process riêng dùng Testing và isolated TestConnection.
 Reset token purpose/version/expiry/replay, concurrent reset/forgot và reset-vs-refresh kiểm tra trên SQL thật;
 HTTP chứng minh access/refresh cũ bị chặn, current-password/recent-auth/CSRF enforcement và giữ MFA sau reset.
 

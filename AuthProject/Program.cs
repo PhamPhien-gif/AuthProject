@@ -11,7 +11,8 @@ if (args.Length == 2 && args[0] == "--generate-jwt-key")
     return;
 }
 
-var builder = WebApplication.CreateBuilder(args);
+var bootstrapAdmin = args.Length == 1 && args[0] == "--bootstrap-admin";
+var builder = WebApplication.CreateBuilder(bootstrapAdmin ? [] : args);
 LocalDotEnv.AddToConfiguration(builder.Configuration, builder.Environment.EnvironmentName, builder.Environment.ContentRootPath);
 
 // Add services to the container.
@@ -25,6 +26,7 @@ builder.Services.AddRefreshSessions(builder.Configuration);
 builder.Services.AddPasswordRecovery(builder.Configuration);
 builder.Services.AddEmailMfa();
 builder.Services.AddGoogleLogin();
+builder.Services.AddAdminManagement();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
@@ -36,6 +38,12 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 var app = builder.Build();
+if (bootstrapAdmin)
+{
+    Environment.ExitCode = await AuthProject.Services.AdminBootstrapCommand.RunAsync(app.Services);
+    await app.DisposeAsync();
+    return;
+}
 
 app.UseExceptionHandler(new ExceptionHandlerOptions { SuppressDiagnosticsCallback = _ => true });
 app.UseForwardedHeaders();

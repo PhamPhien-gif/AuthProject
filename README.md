@@ -2,7 +2,7 @@
 
 Backend Auth ASP.NET Core, SQL Server, EF Core + LINQ, tổ chức theo Layered Architecture
 bằng folder trong một project ứng dụng `AuthProject`. Project xUnit tách riêng để kiểm thử.
-Phạm vi hiện tại: **P10 — Register/Login/JWT/GetMe, refresh rotation/logout/session, password recovery, MFA Email OTP và Google OAuth/OIDC/link/unlink/reauthentication**. Quản trị RBAC chờ P11.
+Phạm vi hiện tại: **P11 — Register/Login/JWT/GetMe, refresh rotation/logout/session, password recovery, MFA Email OTP, Google OAuth/OIDC và quản trị RBAC/user/role/bootstrap Admin**. History/audit query/delivery chờ P12.
 
 ## Đọc theo thứ tự
 
@@ -21,6 +21,7 @@ Phạm vi hiện tại: **P10 — Register/Login/JWT/GetMe, refresh rotation/log
 13. [Kết quả P08, password recovery/change/reauthenticate](Docs/13-P08-RESULTS.md).
 14. [Kết quả P09, MFA Email OTP và recovery](Docs/14-P09-RESULTS.md).
 15. [Kết quả P10, Google/OIDC, linking và migration mới](Docs/15-P10-RESULTS.md).
+16. [Kết quả P11, RBAC, profile và bootstrap Admin](Docs/16-P11-RESULTS.md).
 
 ## Đã khởi tạo
 
@@ -42,7 +43,7 @@ Registration mặc định tắt; cần bật persistence/email và cấu hình 
 Login/JWT mặc định tắt, cần bật persistence và cấu hình RSA private key/issuer/audience.
 Worker delivery audit log4net vẫn thuộc P12.
 Limiter IP/account/session đã có, cùng SQL lockout atomic, dummy hash và cấu hình trusted proxy.
-Swagger có các operation P05–P10, Bearer authorization và CSRF header. Các endpoint probe chỉ nằm trong project test.
+Swagger có các operation P05–P11, Bearer authorization và CSRF header. Các endpoint probe chỉ nằm trong project test.
 
 ## Kiểm tra khung project
 
@@ -63,10 +64,12 @@ Thiếu dependency SQL sẽ fail, không tự skip.
 
 ## Cách yêu cầu triển khai
 
-Ví dụ: **“Triển khai P11 theo Docs, áp dụng TDD và báo kết quả kiểm tra.”**
+Ví dụ: **“Triển khai P12 theo Docs, áp dụng TDD và báo kết quả kiểm tra.”**
 Mỗi lần chỉ thực hiện bước được yêu cầu và dependency đã được cho phép.
-P00–P10 đã hoàn tất; **489 test pass** (140 unit, 141 HTTP/startup, 208 SQL); xem [báo cáo P10](Docs/15-P10-RESULTS.md).
+P00–P11 đã hoàn tất; **538 test pass** (158 unit, 145 HTTP/startup, 235 SQL); xem [báo cáo P11](Docs/16-P11-RESULTS.md).
 API Development và EF CLI đọc `.env` local; xem [hướng dẫn](Docs/05-LOCAL-DEVELOPMENT.md#2-chuỗi-kết-nối-được-cung-cấp).
-P11–P13 chờ lệnh. Cấu hình Google và migration mới ở [local mục 16](Docs/05-LOCAL-DEVELOPMENT.md#16-bật-google-oauthoidc-p10).
+P12–P13 chờ lệnh. Cấu hình Google và migration P10 ở [local mục 16](Docs/05-LOCAL-DEVELOPMENT.md#16-bật-google-oauthoidc-p10).
 Chạy `dotnet ef database update --project AuthProject --startup-project AuthProject` trước startup bản P10,
 kể cả Google tắt. Gate phát hành vẫn thuộc P13.
+P11 không có migration mới. Bootstrap/enrollment/quản trị ở [local mục 17](Docs/05-LOCAL-DEVELOPMENT.md#17-rbac-và-bootstrap-admin-p11);
+bootstrap không tự chạy khi startup và Admin mới phải enroll MFA trước khi dùng quyền quản trị.
