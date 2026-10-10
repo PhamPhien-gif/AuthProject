@@ -15,10 +15,16 @@ public sealed class JwtAccessTokenIssuer(JwtSigningKey key, IOptions<JwtOptions>
     {
         var settings = options.Value;
         var now = clock.GetUtcNow();
+        var claims = new List<Claim>
+        {
+            new("sub", session.UserId.ToString()), new("sid", session.Id.ToString()),
+            new("av", session.AuthVersion.ToString(CultureInfo.InvariantCulture)), new("jti", Guid.NewGuid().ToString()),
+            new("iat", now.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64), new("amr", "pwd")
+        };
+        // Generic MFA evidence covers either email OTP or a one-use recovery code.
+        if (session.MfaVerifiedAt is not null) claims.Add(new("amr", "mfa"));
         var token = new JwtSecurityToken(settings.Issuer, settings.Audience,
-            [new Claim("sub", session.UserId.ToString()), new Claim("sid", session.Id.ToString()),
-             new Claim("av", session.AuthVersion.ToString(CultureInfo.InvariantCulture)), new Claim("jti", Guid.NewGuid().ToString()),
-             new Claim("iat", now.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64), new Claim("amr", "pwd")],
+            claims,
             now.UtcDateTime, DateTimeOffset.FromUnixTimeSeconds(now.ToUnixTimeSeconds()
                 + SessionLifetimeRules.AccessLifetime(session, now, settings.AccessTokenLifetimeSeconds)).UtcDateTime, key.Credentials);
         token.Header["typ"] = "at+jwt";

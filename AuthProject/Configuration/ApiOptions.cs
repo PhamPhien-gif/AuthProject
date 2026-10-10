@@ -46,4 +46,9 @@ public sealed class EmailOtpOptions
     public string KeyId { get; set; } = string.Empty;
     public int ExpirySeconds { get; set; } = 300;
     public int MaxAttempts { get; set; } = 5;
+    public int ChallengeLifetimeSeconds { get; set; } = 600;
+    public int ResendCooldownSeconds { get; set; } = 60;
+    public int MaxSends { get; set; } = 3;
+    public int RecentAuthenticationSeconds { get; set; } = 300;
+    public int RecoveryCodeCount { get; set; } = 10;
 }

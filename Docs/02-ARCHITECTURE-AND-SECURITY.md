@@ -1,6 +1,6 @@
 # Kiến trúc và thiết kế bảo mật
 
-**Thiết kế toàn hệ thống; P00–P08 đã triển khai, gồm password recovery/change/reauthenticate; các flow còn lại chờ lệnh.** Các giá trị timeout/quota là baseline
+**Thiết kế toàn hệ thống; P00–P09 đã triển khai, gồm password recovery và MFA Email OTP; các flow còn lại chờ lệnh.** Các giá trị timeout/quota là baseline
 để test, sẽ điều chỉnh bằng đo đạc ở P13. Xem thứ tự triển khai ở [roadmap](01-IMPLEMENTATION-PLAN.md).
 
 ## 1. Layered Architecture
@@ -187,7 +187,7 @@ không trả raw token/security exception. Key không nạp khi module tắt.
 Password gate commit primary-factor audit/counter ở transaction P04. LoginStore tạo transaction mới,
 khóa lại User và kiểm tra trạng thái/version/lockout trước rehash + session/history/audit commit.
 Signing/audit/save failure rollback transaction completion; primary-factor audit đã commit vẫn giữ lại.
-Account MFA không tạo full session, chỉ history Pending + 403 step-up đến P09; không giả tạo OTP challenge.
+Account MFA chỉ có history Pending và challenge trước factor; module MFA tắt vẫn 403 step-up. Chỉ verify thành công mới cấp full session.
 Idle/absolute session expiry được tính tại login, mặc định 7/30 ngày; P06 chưa extend idle/LastSeenAt mỗi request.
 P07 thay digest dự phòng bằng secret CSPRNG cấp qua cookie khi module Refresh bật.
 Không tăng LastSeenAt/idle trên GET hoặc bearer request; chỉ rotation thành công kéo dài idle.
@@ -256,13 +256,20 @@ out-of-band authentication. Có thể mở rộng TOTP/WebAuthn sau bằng inter
 - HMAC-SHA256 với server pepper riêng, keyId + challengeId + purpose + version + OTP;
   constant-time comparison. Secret pepper ngoài DB/repository, có kế hoạch rotation.
 - Mỗi OTP hết hạn 5 phút; challenge tổng tối đa 10 phút; tối đa 5 lần verify sai/challenge,
-  resend cách 60 giây và tối đa 3 lần gửi/challenge; rate-limit theo user/IP bổ sung.
+  resend cách 60 giây và tối đa 3 lần gửi/challenge, tổng 3 lần/user trong window 600s kể cả challenge consumed;
+  OTP IP quota 10/phút, step-up password dùng Login quota/SQL lockout.
 - Resend thay code/version, giữ total failed attempts và absolute challenge deadline.
 - Bind challenge vào user/purpose/pre-auth context; không nhận userId/email để đổi đối tượng khi verify.
 - OTP consume + tạo session + audit atomic; response mới có token khi factor hoàn tất.
-- Pre-auth ticket opaque random, giới hạn mục đích, không được JwtBearer nhận làm access token.
+- Pre-auth cookie Data Protection purpose riêng, bind challenge/user/purpose/random ContextId/AuthVersion;
+  không được JwtBearer nhận làm access token. Một cookie chứa một operation, flow mới ghi đè binding browser.
 - MFA enrollment cần recent primary auth ≤ 5 phút và OTP; disable cần current factor/recovery code.
 - Recovery codes entropy cao, hiển thị một lần, lưu hash, atomic one-time; regenerate vô hiệu bộ cũ.
+
+P09 enable/disable/regenerate tăng AuthVersion và revoke mọi session/refresh/challenge cùng transaction.
+Step-up endpoint riêng xác minh password rồi factor, completion mới cập nhật AuthenticatedAt/MfaVerifiedAt;
+resend không renew primary proof. JWT amr có pwd + mfa khi session đã có factor; refresh giữ bằng chứng SQL.
+Pepper hiện chỉ có một key ID active, đổi key sẽ invalid pending OTP. Google primary/factor completion nối ở P10.
 
 ## 8. Google OAuth 2.0 / OpenID Connect
 

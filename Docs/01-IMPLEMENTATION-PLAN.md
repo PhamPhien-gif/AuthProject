@@ -1,6 +1,6 @@
-# Kế hoạch triển khai Auth
+﻿# Kế hoạch triển khai Auth
 
-Ngày lập: 09/10/2026. Cập nhật P08: 10/10/2026. Trạng thái: **P00–P08 đã triển khai, P09–P13 chờ lệnh**.
+Ngày lập: 09/10/2026. Cập nhật P09: 10/10/2026. Trạng thái: **P00–P09 đã triển khai, P10–P13 chờ lệnh**.
 Kết quả và giới hạn kiểm chứng P01: [báo cáo P01](06-P01-RESULTS.md).
 Kết quả và cách mở rộng P02: [báo cáo P02](07-P02-RESULTS.md).
 Kết quả persistence, hashing và audit: [báo cáo P03](08-P03-RESULTS.md).
@@ -9,6 +9,7 @@ Kết quả Register/Verify/Resend và SMTP outbox: [báo cáo P05](10-P05-RESUL
 Kết quả Login/JWT/GetMe và session validation: [báo cáo P06](11-P06-RESULTS.md).
 Kết quả rotation/reuse/logout/session/CSRF: [báo cáo P07](12-P07-RESULTS.md).
 Kết quả password recovery/change/reauthenticate: [báo cáo P08](13-P08-RESULTS.md).
+Kết quả MFA Email OTP/enrollment/step-up/recovery: [báo cáo P09](14-P09-RESULTS.md).
 Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant hoặc microservice.
 
 ## 1. Nguyên tắc điều khiển phạm vi
@@ -33,7 +34,7 @@ Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant h
 | P06 | Auth cơ bản | Login, JWT, authentication, GetMe | P05 | Hoàn tất — 259 test pass toàn solution |
 | P07 | Auth cơ bản | Rotation, reuse detection, logout/revoke | P06 | Hoàn tất — 321 test pass toàn solution |
 | P08 | Vòng đời tài khoản | Forgot/Reset/Change password | P07 | Hoàn tất — 369 test pass toàn solution |
-| P09 | MFA | Email OTP, enrollment, disable, recovery | P08 | Chờ lệnh |
+| P09 | MFA | Email OTP, enrollment, disable, recovery | P08 | Hoàn tất — 435 test pass toàn solution |
 | P10 | Social login | Google OAuth 2.0/OIDC, linking | P09 | Chờ lệnh |
 | P11 | Authorization | RBAC, policy, quản trị user/role | P10 | Chờ lệnh |
 | P12 | Quan sát | Login History, AuditLog API, log4net delivery | P11 | Chờ lệnh |
@@ -53,7 +54,7 @@ Ghi audit bắt đầu ở P03 và được nối vào từng flow ngay khi flow
 - [x] Bỏ WeatherForecast và test rỗng từ template.
 - [x] Thêm `.gitignore`, `.editorconfig`, `.env.example`, pin SDK 8 hiện có.
 - [x] Viết Docs cho kiến trúc, API, TDD, local và roadmap.
-- [x] P01–P08 đã triển khai theo lệnh riêng; P09–P13 chưa thực hiện.
+- [x] P01–P09 đã triển khai theo lệnh riêng; P10–P13 chưa thực hiện.
 
 Nghiệm thu: restore/build được; runner xUnit chạy được nhưng chưa có test; ignore giữ lại
 source, Docs và file example, loại bỏ output/secrets. Kết quả thực tế xem [local](05-LOCAL-DEVELOPMENT.md).
@@ -236,11 +237,19 @@ build 0 warning/error. [Bằng chứng và giới hạn P08](13-P08-RESULTS.md).
 4. Verify atomic one-time, expiry, failed-attempt cap, resend cooldown và tổng số lần gửi.
 5. Resend làm OTP cũ mất hiệu lực, không reset attempt budget hay kéo dài vô hạn challenge.
 6. Enable/disable yêu cầu step-up; phát recovery codes một lần và chỉ lưu hash.
-7. Login Google cũng đi qua local MFA nếu account bật MFA.
+7. Login Google cũng phải qua local MFA nếu account bật MFA; nối provider completion và kiểm chứng khi triển khai P10, vì hiện chưa có Google login.
 
 Red: pre-MFA không gọi GetMe được; OTP sai/expired/replay/cross-purpose; song song chỉ một lần dùng;
 resend không bypass budget; disable thiếu factor bị chặn; recovery code chỉ dùng một lần.
 Nghiệm thu: không gọi Email OTP là MFA chống phishing/AAL2; giải thích giới hạn ở tài liệu kiến trúc.
+
+Kết quả P09: protected cookie-bound LoginMfa/EnrollMfa/StepUp; OTP HMAC pepper, fixed deadline/attempt/send budget;
+verify/recovery atomic, pending login không có session/token. Enable/disable/regenerate tăng AuthVersion,
+revoke sessions/refresh/challenges; codes chỉ hash và hiển thị một lần. MFA step-up renew SQL proof sau factor.
+MfaEmail worker lease/retry/discard stale OTP; DTO/CSRF/rate/error/Swagger giữ thống nhất.
+Không migration mới hoặc sửa `.env`/DB ứng dụng. Cấu hình và thao tác ở local mục 15.
+Release: **132 unit + 130 HTTP/startup + 173 SQL = 435 passed**, 0 failed/skipped, build 0 warning/error.
+[Bằng chứng TDD thực tế, kết quả và giới hạn P09](14-P09-RESULTS.md). P10–P13 vẫn chờ lệnh.
 
 ### P10 — Đăng nhập/đăng ký Google
 

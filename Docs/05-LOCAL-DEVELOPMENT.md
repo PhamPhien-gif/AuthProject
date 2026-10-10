@@ -1,6 +1,6 @@
-# Chạy local và cấu hình
+﻿# Chạy local và cấu hình
 
-## 1. Trạng thái hiện tại: P06
+## 1. Trạng thái hiện tại: P09
 
 `global.json` chọn SDK **10.0.401** + latestPatch, mọi project target `net10.0` qua
 `Directory.Build.props`. IDE phải hỗ trợ SDK này; CLI là cách build đã được kiểm chứng.
@@ -9,7 +9,7 @@ API có Swagger, DTO/FluentValidation, ProblemDetails, exception handler, option
 đã có entities, DbContext/migration, repositories, password hasher, audit/outbox và log4net adapter;
 đã có endpoint Register/Verify/Resend và SMTP email worker. Registration, persistence và file sink mặc định tắt.
 Rate limiting mặc định bật; đã có SQL lockout, credential gate và trusted proxy options.
-Swagger có năm operation P05/P06 và Bearer; Login/JWT/GetMe đã có, Google/MFA/refresh/logout chưa triển khai.
+Swagger có Register/Login/GetMe, refresh/logout/session, password recovery và MFA Email OTP; Google chờ P10.
 JWT mặc định tắt cho đến khi đủ persistence, issuer/audience/RSA private key.
 Không cần kết nối SQL/SMTP/Google để build hoặc mở Swagger; SQL chỉ cần cho nhóm test SQL.
 
@@ -279,7 +279,7 @@ không copy đè cấu hình riêng. Defaults:
 | Api (mọi request) | 200/60 giây | — |
 | Login | 10/60 giây | 30/900 giây/account |
 | Register | 5/900 giây | 5/900 giây/account |
-| Otp | 10/60 giây | attempt/challenge sẽ nối P09 |
+| Otp | 10/60 giây | P09: 5 lần sai/challenge, SQL send budget theo user |
 | Refresh | 60/60 giây | 30/60 giây/session đã xác thực |
 | Recovery | 5/900 giây | 5/900 giây/account |
 | Google | 10/60 giây | — |
@@ -413,8 +413,8 @@ Me chỉ trả profile/roles hiện tại của actor, không password hash/toke
 Token nhận qua Authorization header, không query/cookie; response thành công có no-store.
 
 Sai/unknown/locked/disabled/unverified/Google-only cùng AUTH_INVALID_CREDENTIALS 401.
-User đã bật MFA nhận AUTH_STEP_UP_REQUIRED 403 sau password đúng; chưa có OTP challenge/cấp phiên
-đến P09, không có đường tắt bypass MFA. JWT module tắt: Login input hợp lệ 503, Me không token 401.
+User bật MFA nhận 202 challenge nếu EmailOtp bật đủ cấu hình (mục 15); module MFA tắt thì vẫn
+nhận AUTH_STEP_UP_REQUIRED 403, không có đường tắt. JWT module tắt: Login input hợp lệ 503, Me không token 401.
 Role authorization cơ bản đã có, roles lấy từ SQL mỗi request; admin APIs/step-up thuộc P11.
 
 SQL session validation kiểm tra status/email confirmation/AuthVersion/MFA/revoke/idle/absolute trên
@@ -529,7 +529,7 @@ Thử trong Swagger:
 5. Khi nhận AUTH_STEP_UP_REQUIRED do primary proof quá cũ, gọi
    POST `/api/v1/auth/reauthenticate` với `{"password":"..."}` + JWT/CSRF → 204,
    rồi Change. Nếu JWT hết hạn, refresh tuần tự trước; refresh không tự renew primary proof.
-   Password reauthenticate không renew factor proof: MFA proof missing/expired vẫn 403, cần P09.
+   Password reauthenticate không renew factor proof: MFA proof missing/expired vẫn 403; dùng MFA step-up ở mục 15.
 
 Password mới 15–128 ký tự theo validator; Change không cho giống current password.
 Actor/session/version lấy từ JWT, không gửi userId/sessionId/role trong JSON. Unknown properties bị reject.
@@ -548,3 +548,61 @@ accept trước DB ack; pending đạt 10 attempts cần operator điều tra/re
 Không sửa `.env`, update database ứng dụng hoặc gửi SMTP thật trong phiên triển khai P08.
 Regression Release **121 unit + 109 HTTP/startup + 139 SQL = 369 passed**, 0 failed/skipped,
 build 0 warning/error. Reports ignored tại TestResults/P08; [báo cáo P08](13-P08-RESULTS.md).
+
+## 15. Bật MFA Email OTP P09
+
+Không có migration mới. Nếu đã cập nhật schema P03/P04 thì không cần `dotnet ef database update` riêng cho P09.
+MFA mặc định tắt. Trong `.env` của bạn, bật Persistence + JWT/RSA + Refresh/allowed origins + Email/SMTP theo các mục trước, rồi thêm:
+
+```dotenv
+Auth__EmailOtp__Enabled=true
+Auth__EmailOtp__KeyId='local-otp-1'
+Auth__EmailOtp__Pepper='<Base64 của ít nhất 32 random bytes>'
+Auth__EmailOtp__ExpirySeconds=300
+Auth__EmailOtp__MaxAttempts=5
+Auth__EmailOtp__ChallengeLifetimeSeconds=600
+Auth__EmailOtp__ResendCooldownSeconds=60
+Auth__EmailOtp__MaxSends=3
+Auth__EmailOtp__RecentAuthenticationSeconds=300
+Auth__EmailOtp__RecoveryCodeCount=10
+```
+
+Pepper phía trên là placeholder, phải thay bằng secret random riêng. Sinh LOCAL bằng PowerShell:
+`[Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`.
+Không dùng SMTP password/JWT key làm pepper. Đổi pepper/key ID vô hiệu OTP đang chờ; restart sau đổi cấu hình.
+Giữ Data Protection keys cho outbox/cookie; không commit secret/key hoặc đưa secret thật vào `.env.example`.
+Worker dùng poll/timeout/lease Registration 5/30/120 mặc định, dù Registration tắt. SMTP chạy sau commit.
+
+### Enrollment
+
+1. Đăng nhập tài khoản Active có email verified, chưa bật MFA. Lấy CSRF như mục 13; mọi POST bên dưới cần origin + X-CSRF-TOKEN và cookies.
+2. Trong vòng <300 giây từ primary auth, POST `/api/v1/auth/mfa/email/enroll` với bearer, không body → 202 MfaChallengeResponse.
+3. Giữ cookie HttpOnly `__Secure-AuthProject.Mfa`; nhận mã qua email. POST `/api/v1/auth/mfa/email/enable` với bearer và `{"challengeId":"<guid>","code":"012345"}`.
+4. 200 trả `{"recoveryCodes":["<43-character-code>","..."]}` một lần, no-store. Lưu codes an toàn. Phiên/JWT/refresh cũ bị thu hồi; không auto-login.
+5. Đăng nhập lại theo flow dưới. Tổng budget gửi OTP áp dụng cả enrollment/login/step-up trong window 600s.
+
+### Login, resend và recovery
+
+1. GET `/api/v1/auth/csrf`, rồi POST `/api/v1/auth/login` với email/password. MFA bật: 202 chỉ có challengeId/purpose/expiresAt/nextSendAt và cookie binding; chưa access/refresh/session. GetMe vẫn 401.
+2. POST `/api/v1/auth/mfa/email/verify` với challengeId/code + CSRF/cookie → 200 AuthResult + refresh cookie. Không gửi bearer phiên cũ trong pre-auth flow.
+3. POST `/api/v1/auth/mfa/email/resend` với `{"challengeId":"<guid>"}` sau nextSendAt → 202 updated challenge. OTP trước mất hiệu lực, attempts không reset, deadline tổng không quá 600s.
+4. Mất email: POST `/api/v1/auth/mfa/recovery/verify` với `{"challengeId":"<guid>","code":"<recovery-code>"}` + CSRF/cookie. Code chỉ một lần, cùng factor attempt budget; dùng deadline tổng của challenge. Không dùng recovery để enroll.
+5. Sai/hết hạn/replay/wrong context → 400 AUTH_CHALLENGE_INVALID; sai 5 lần thì challenge consumed. Resend sớm/send budget hết → 429 RATE_LIMITED. Hết deadline phải login lại; account send budget không reset bằng challenge mới.
+
+### Step-up, disable và regenerate
+
+Refresh JWT tuần tự nếu cần; refresh không renew primary/factor proof.
+POST `/api/v1/auth/mfa/email/step-up` với bearer + CSRF + `{"password":"<current-password>"}` → 202 factor challenge.
+POST `/api/v1/auth/mfa/email/verify` hoặc recovery/verify với bearer của cùng actor/session, binding cookie và code → 204; lúc này mới renew cả hai proof SQL. Enrollment dùng enable riêng.
+
+POST `/api/v1/auth/mfa/email/disable` hoặc `/api/v1/auth/mfa/recovery/regenerate` với bearer + CSRF, không body, khi cả primary/factor recent <300s.
+Disable → 204, tắt flag và invalidate codes. Regenerate → 200 bộ codes mới một lần, bộ cũ mất hiệu lực.
+Cả hai version++, revoke mọi session/refresh/challenge và clear cookies; phải login lại.
+Password reset không tắt MFA hoặc cấp factor proof. Password reauthenticate P08 chỉ renew primary khi factor còn recent; dùng MFA step-up để renew factor cũ.
+
+Một browser có một cookie MFA operation, nên flow mới thay binding của flow cũ. Swagger cần allowed origin đúng địa chỉ HTTPS của API, CSRF header và browser cookie; Authorize bearer chỉ cho enrollment/step-up/management.
+Email OTP không chống phishing, phụ thuộc mailbox và không được quảng bá là NIST AAL2.
+Google/OIDC chờ P10; provider login phải qua local MFA trước khi cấp phiên. Audit SQL/outbox đã ghi sự kiện MFA; delivery log4net worker chờ P12.
+
+Kiểm chứng: **132 unit + 130 HTTP/startup + 173 SQL = 435 passed**, 0 failed/skipped; build 0 warning/error. Reports ignored tại TestResults/P09; [báo cáo P09](14-P09-RESULTS.md).
+SQL dùng database cô lập, email transport giả; SMTP thật cần kiểm tra với cấu hình của bạn.

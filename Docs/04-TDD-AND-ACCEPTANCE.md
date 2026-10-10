@@ -1,6 +1,6 @@
-# TDD, xUnit và kiểm soát chất lượng
+﻿# TDD, xUnit và kiểm soát chất lượng
 
-Tài liệu này là kế hoạch kiểm thử. **P08 đã có test các flow P05–P07 và password recovery/change/reauthenticate**, MFA vẫn chờ bước tương ứng;
+Tài liệu này là kế hoạch kiểm thử. **P09 đã có test các flow P05–P08 và MFA Email OTP/enrollment/step-up/recovery**; Google/RBAC quản trị còn chờ bước tương ứng;
 không dùng kết quả test nền tảng để báo hệ thống Auth đã hoàn tất.
 Xem [bằng chứng P01](06-P01-RESULTS.md) và [lệnh chạy local](05-LOCAL-DEVELOPMENT.md#6-chạy-test-p01).
 P02: [bằng chứng Red/Green và giới hạn](07-P02-RESULTS.md).
@@ -19,6 +19,7 @@ SQL thật kiểm tra parallel refresh và refresh-vs-logout, cùng owner-scoped
 HTTP kiểm tra cookie/CSRF/CORS, access expiry/revocation và session quota sau verified cookie lookup.
 Test cookie qua HTTP không thay thế smoke test policy cookie/TLS trong browser thực tế.
 P08: [kết quả password lifecycle, rollback và concurrency](13-P08-RESULTS.md).
+P09: [kết quả MFA, TDD thực tế và giới hạn](14-P09-RESULTS.md), 132 unit + 130 HTTP/startup + 173 SQL = 435 pass, 0 failed/skipped.
 Reset token purpose/version/expiry/replay, concurrent reset/forgot và reset-vs-refresh kiểm tra trên SQL thật;
 HTTP chứng minh access/refresh cũ bị chặn, current-password/recent-auth/CSRF enforcement và giữ MFA sau reset.
 

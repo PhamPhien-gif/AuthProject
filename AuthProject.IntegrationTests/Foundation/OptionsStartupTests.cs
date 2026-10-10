@@ -1,5 +1,8 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
+using AuthProject.BackgroundJobs;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace AuthProject.IntegrationTests.Foundation;
 
@@ -12,11 +15,13 @@ public sealed class OptionsStartupTests
     {
         using var key = new AuthProject.TestSupport.TemporaryJwtKey();
         await using var factory = FoundationFactory.Create().WithWebHostBuilder(builder =>
+        {
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Auth:Jwt:Enabled"] = "true", ["Auth:Jwt:Issuer"] = "https://issuer.example.test",
                 ["Auth:Jwt:Audience"] = "test-api", ["Auth:Jwt:SigningKeyPath"] = key.Path,
                 ["Auth:Jwt:KeyId"] = "test-key", ["Persistence:Enabled"] = "true",
+                ["Auth:Refresh:Enabled"] = "true", ["Auth:Refresh:AllowedOrigins:0"] = "https://localhost",
                 ["ConnectionStrings:DefaultConnection"] = "Server=local-test-only;Database=AuthProject_Test_Config;Integrated Security=True;",
                 ["Auth:Email:Enabled"] = "true", ["Auth:Email:Host"] = "smtp.example.test",
                 ["Auth:Email:Sender"] = "sender@example.test", ["Auth:Email:Username"] = "test",
@@ -25,7 +30,12 @@ public sealed class OptionsStartupTests
                 ["Auth:Google:ClientSecret"] = "test-only-credential",
                 ["Auth:EmailOtp:Enabled"] = "true", ["Auth:EmailOtp:KeyId"] = "test-pepper",
                 ["Auth:EmailOtp:Pepper"] = Convert.ToBase64String(new byte[32])
-            })));
+            }));
+            builder.ConfigureServices(services =>
+            {
+                foreach (var d in services.Where(d => d.ServiceType == typeof(IHostedService) && d.ImplementationType == typeof(MfaEmailWorker)).ToArray()) services.Remove(d);
+            });
+        });
         using var client = factory.Client();
         using var response = await client.GetAsync("/api/v1/auth/me");
         await ErrorContractTests.AssertProblem(response, 401, "AUTH_UNAUTHENTICATED");

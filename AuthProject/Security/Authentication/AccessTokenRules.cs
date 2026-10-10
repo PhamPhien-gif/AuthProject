@@ -12,13 +12,15 @@ public static class AccessTokenRules
     {
         userId = sessionId = Guid.Empty;
         authVersion = 0;
-        foreach (var name in new[] { "sub", "sid", "av", "jti", "iat", "amr" })
+        foreach (var name in new[] { "sub", "sid", "av", "jti", "iat" })
             if (principal.FindAll(name).Count() != 1) return false;
+        var methods = principal.FindAll("amr").Select(c => c.Value).ToArray();
+        if (methods.Count(m => m == "pwd") != 1 || methods.Count(m => m == "mfa") > 1
+            || methods.Any(m => m is not ("pwd" or "mfa"))) return false;
         return Guid.TryParse(principal.FindFirst("sub")!.Value, out userId) && userId != Guid.Empty
             && Guid.TryParse(principal.FindFirst("sid")!.Value, out sessionId) && sessionId != Guid.Empty
             && long.TryParse(principal.FindFirst("av")!.Value, NumberStyles.None, CultureInfo.InvariantCulture, out authVersion) && authVersion >= 1
             && Guid.TryParse(principal.FindFirst("jti")!.Value, out var jti) && jti != Guid.Empty
-            && long.TryParse(principal.FindFirst("iat")!.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var iat) && iat >= 0
-            && principal.FindFirst("amr")!.Value == "pwd";
+            && long.TryParse(principal.FindFirst("iat")!.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var iat) && iat >= 0;
     }
 }

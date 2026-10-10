@@ -30,7 +30,7 @@ public sealed class LoginStore(IDbContextFactory<AuthDbContext> factory, IOption
                 Outcome = AuditOutcome.Pending, ReasonCode = AuditReason.None, OccurredAt = now, TraceId = traceId });
             await db.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
-            throw new AppException("AUTH_STEP_UP_REQUIRED"); // MFA flow belongs to P09; never issue a full session here.
+            throw new AppException("AUTH_STEP_UP_REQUIRED"); // Fail closed when the MFA module is disabled or a stale caller skips its gate.
         }
         if (accepted.RequiresRehash)
         {

@@ -1,6 +1,6 @@
 # API, DTO và lỗi thống nhất
 
-**P08 đã triển khai các flow P05–P07, Forgot/Reset/Change password và password reauthenticate; các endpoint còn lại chờ bước tương ứng.** Prefix `/api/v1`.
+**P09 đã triển khai các flow P05–P08 và MFA Email OTP/enrollment/step-up/recovery; Google và endpoint quản trị còn chờ bước tương ứng.** Prefix `/api/v1`.
 JSON camelCase, UTC ISO-8601, ID opaque/Guid. Thành công dùng DTO trực tiếp, không bọc mọi
 response trong `success/message/data`; lỗi dùng `application/problem+json` thống nhất.
 
@@ -15,7 +15,7 @@ response trong `success/message/data`; lỗi dùng `application/problem+json` th
 | POST /auth/register | Anonymous | RegisterRequest → generic 202, không tokens | P05 |
 | POST /auth/email/verify | Anonymous | VerifyEmailRequest → 204 | P05 |
 | POST /auth/email/resend | Anonymous | EmailRequest → generic 202 | P05 |
-| POST /auth/login | Anonymous | LoginRequest → 200 AuthResult hoặc 202 MfaChallengeResult | P06/P09 |
+| POST /auth/login | Anonymous | LoginRequest → 200 AuthResult hoặc 202 MfaChallengeResponse | P06/P09 |
 | POST /auth/refresh | Refresh cookie + CSRF | 200 AuthResult, rotate cookie | P07 |
 | POST /auth/logout | Refresh cookie + CSRF, access có thể hết hạn | 204, revoke family và clear cookie; cookie absent/invalid vẫn 204 | P07 |
 | POST /auth/logout-all | Authenticated + CSRF | 204, revoke tất cả session của actor | P07 |
@@ -27,11 +27,12 @@ response trong `success/message/data`; lỗi dùng `application/problem+json` th
 | POST /auth/password/change | Authenticated + recent primary/factor + CSRF khi Refresh bật | ChangePasswordRequest → 204, revoke tất cả session | P08/P09 |
 | POST /auth/reauthenticate | Authenticated + CSRF khi Refresh bật | ReauthenticateRequest.password → 204, renew primary proof; Google/factor challenge về sau | P08–P10 |
 | POST /auth/mfa/email/enroll | Authenticated + recent primary auth | 202 enrollment challenge | P09 |
+| POST /auth/mfa/email/step-up | Authenticated + current password + CSRF | ReauthenticateRequest → 202 factor challenge; chưa renew proof | P09 |
 | POST /auth/mfa/email/enable | Authenticated + enrollment challenge | VerifyOtpRequest → recovery codes một lần; revoke phiên cũ | P09 |
-| POST /auth/mfa/email/verify | Pre-auth challenge context | VerifyOtpRequest → AuthResult hoặc step-up ticket theo purpose | P09 |
-| POST /auth/mfa/email/resend | Pre-auth/enrollment context | ChallengeRequest → generic 202, giữ budget | P09 |
+| POST /auth/mfa/email/verify | Bound cookie + CSRF; step-up cần bearer actor | VerifyOtpRequest → 200 AuthResult (login), 204 renew SQL proof (step-up); reject enrollment | P09 |
+| POST /auth/mfa/email/resend | Bound cookie + CSRF; enrollment/step-up cần bearer actor | ChallengeRequest → 202 MfaChallengeResponse, giữ budget | P09 |
 | POST /auth/mfa/email/disable | Authenticated + step-up/current factor | 204; revoke sessions + invalidate codes/challenges | P09 |
-| POST /auth/mfa/recovery/verify | Pre-auth challenge context | RecoveryCodeRequest → AuthResult, consume code | P09 |
+| POST /auth/mfa/recovery/verify | Bound cookie + CSRF; step-up cần bearer actor | RecoveryCodeRequest → 200 AuthResult hoặc 204 step-up, consume code; reject enrollment | P09 |
 | POST /auth/mfa/recovery/regenerate | Authenticated + step-up/current factor | Bộ codes mới một lần, bộ cũ hết hiệu lực | P09 |
 | GET /auth/google/start | Anonymous, browser navigation | 302 Google, bind login state + return path | P10 |
 | GET /signin-google | Provider callback, correlation/state | Middleware callback → redirect fixed completion page | P10 |
@@ -67,7 +68,7 @@ Session delete và logout-all require access JWT; logout hiện tại vẫn làm
 | VerifyOtpRequest.challengeId | Guid hợp lệ, bind với pre-auth context, không nhận userId thay thế |
 | VerifyOtpRequest.code | Chính xác 6 ASCII digits, string, không trim tự động |
 | ChallengeRequest.challengeId | Guid hợp lệ và ownership/context verification |
-| RecoveryCodeRequest.challengeId/code | Guid khác rỗng; code 43 ký tự Base64URL (định hướng 32 random bytes); generator/digest lookup ở P09 |
+| RecoveryCodeRequest.challengeId/code | Guid khác rỗng; code 43 ký tự Base64URL, 32 CSPRNG bytes, SHA256 digest lookup |
 | GoogleCompleteRequest.ticket | Opaque bounded, one-use, expiry, browser correlation |
 | SetUserRolesRequest.roleNames | Required, không trùng, tối đa 10; role phải thuộc catalog |
 | ChangeUserStatusRequest.status | Allowlist Active/Disabled; không sửa trực tiếp trạng thái verification |
@@ -109,19 +110,18 @@ AuthResult (200):
 Refresh token chỉ trong Set-Cookie HttpOnly theo browser baseline; không trong JSON.
 P07 cấp refresh cookie khi `Auth:Refresh:Enabled=true`; Login yêu cầu CSRF trong chế độ này.
 Khi module Refresh tắt, Login vẫn dùng chế độ access-only P06 và không gửi refresh cookie.
-Account đã bật MFA nhận 403 AUTH_STEP_UP_REQUIRED sau password hợp lệ, chưa có challenge/tokens đến P09.
-Token response có `Cache-Control: no-store`. Register/forgot/resend cùng generic 202
+Account bật MFA nhận 202 challenge khi module EmailOtp bật; module MFA tắt thì 403 AUTH_STEP_UP_REQUIRED.
+Token response có `Cache-Control: no-store`. Register/forgot/email-verification resend cùng generic 202
 `{"message":"Nếu yêu cầu hợp lệ, hướng dẫn sẽ được gửi đến email của bạn."}`.
 
-MfaChallengeResult (202):
+MfaChallengeResponse (202):
 
 ```json
 {
-  "requiresMfa": true,
   "challengeId": "<guid>",
-  "method": "emailOtp",
-  "expiresIn": 300,
-  "resendAfter": 60
+  "purpose": "LoginMfa",
+  "expiresAt": "2026-10-10T00:05:00+00:00",
+  "nextSendAt": "2026-10-10T00:01:00+00:00"
 }
 ```
 

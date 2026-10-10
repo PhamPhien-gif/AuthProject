@@ -23,6 +23,7 @@ builder.Services.AddRegistration(builder.Configuration);
 builder.Services.AddLogin(builder.Configuration);
 builder.Services.AddRefreshSessions(builder.Configuration);
 builder.Services.AddPasswordRecovery(builder.Configuration);
+builder.Services.AddEmailMfa();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>

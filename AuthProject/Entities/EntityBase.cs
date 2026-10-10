@@ -19,7 +19,7 @@ public enum AuditEventType
     Registered, EmailVerified, EmailVerificationRequested, LoginFailed, PasswordVerified, LoginCompleted, MfaChallenged, MfaFailed, MfaVerified,
     RefreshRotated, RefreshReused, SessionRevoked, PasswordChanged, PasswordReset,
     RoleChanged, UserStatusChanged, GoogleLinked, GoogleUnlinked, AccessDenied, AccountLocked,
-    PasswordResetRequested, Reauthenticated
+    PasswordResetRequested, Reauthenticated, MfaEnabled, MfaDisabled, RecoveryCodesRegenerated
 }
 public enum AuditReason { None, InvalidCredentials, Expired, Reused, Revoked, Forbidden, Locked, Disabled, Unverified }
-public enum OutboxKind { Audit, Email, PasswordEmail }
+public enum OutboxKind { Audit, Email, PasswordEmail, MfaEmail }

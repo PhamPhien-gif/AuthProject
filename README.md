@@ -1,8 +1,8 @@
-# AuthProject
+﻿# AuthProject
 
 Backend Auth ASP.NET Core, SQL Server, EF Core + LINQ, tổ chức theo Layered Architecture
 bằng folder trong một project ứng dụng `AuthProject`. Project xUnit tách riêng để kiểm thử.
-Phạm vi hiện tại: **P06 — Register/Verify/Resend, Login, JWT authentication và GetMe**; refresh/logout/MFA còn chờ bước tương ứng.
+Phạm vi hiện tại: **P09 — Register/Login/JWT/GetMe, refresh rotation/logout/session, password recovery và MFA Email OTP/enrollment/step-up/recovery**. Google/OIDC và quản trị RBAC chờ bước tương ứng.
 
 ## Đọc theo thứ tự
 
@@ -17,6 +17,9 @@ Phạm vi hiện tại: **P06 — Register/Verify/Resend, Login, JWT authenticat
 9. [Kết quả P04, quota, lockout và trusted proxy](Docs/09-P04-RESULTS.md).
 10. [Kết quả P05, endpoint đăng ký/xác minh và cấu hình SMTP](Docs/10-P05-RESULTS.md).
 11. [Kết quả P06, RSA key, Login/GetMe và kiểm chứng JWT](Docs/11-P06-RESULTS.md).
+12. [Kết quả P07, rotation/logout/session/CSRF](Docs/12-P07-RESULTS.md).
+13. [Kết quả P08, password recovery/change/reauthenticate](Docs/13-P08-RESULTS.md).
+14. [Kết quả P09, MFA Email OTP và recovery](Docs/14-P09-RESULTS.md).
 
 ## Đã khởi tạo
 
@@ -34,11 +37,11 @@ IdentityV3 password hasher, audit SQL/outbox mã hóa và adapter log4net. Persi
 mặc định tắt; không tự migrate database khi startup. Worker delivery thuộc P12.
 Đã có endpoint Register/Verify/Resend, MailKit SMTP adapter và worker email outbox.
 Registration mặc định tắt; cần bật persistence/email và cấu hình đầy đủ để sử dụng.
-Đã có JWT RS256 + SQL session validation mỗi request; Google/MFA chưa triển khai.
+Đã có JWT RS256 + SQL session validation mỗi request và MFA Email OTP; Google chờ P10.
 Login/JWT mặc định tắt, cần bật persistence và cấu hình RSA private key/issuer/audience.
 Worker delivery audit log4net vẫn thuộc P12.
 Limiter IP/account/session đã có, cùng SQL lockout atomic, dummy hash và cấu hình trusted proxy.
-Swagger có năm operation P05/P06 và Bearer authorization. Các endpoint probe chỉ nằm trong project test.
+Swagger có các operation P05–P09, Bearer authorization và CSRF header. Các endpoint probe chỉ nằm trong project test.
 
 ## Kiểm tra khung project
 
@@ -59,8 +62,8 @@ Thiếu dependency SQL sẽ fail, không tự skip.
 
 ## Cách yêu cầu triển khai
 
-Ví dụ: **“Triển khai P07 theo Docs, áp dụng TDD và báo kết quả kiểm tra.”**
+Ví dụ: **“Triển khai P10 theo Docs, áp dụng TDD và báo kết quả kiểm tra.”**
 Mỗi lần chỉ thực hiện bước được yêu cầu và dependency đã được cho phép.
-P00–P06 đã hoàn tất; **259 test pass** (90 unit, 88 HTTP/startup, 81 SQL); xem [báo cáo P06](Docs/11-P06-RESULTS.md).
+P00–P09 đã hoàn tất; **435 test pass** (132 unit, 130 HTTP/startup, 173 SQL); xem [báo cáo P09](Docs/14-P09-RESULTS.md).
 API Development và EF CLI đọc `.env` local; xem [hướng dẫn](Docs/05-LOCAL-DEVELOPMENT.md#2-chuỗi-kết-nối-được-cung-cấp).
-P07–P13 chờ lệnh. Chưa phát hành public khi refresh/logout còn thiếu.
+P10–P13 chờ lệnh. Cấu hình MFA ở [local mục 15](Docs/05-LOCAL-DEVELOPMENT.md#15-bật-mfa-email-otp-p09); không có migration mới P09. Gate phát hành vẫn thuộc P13.
