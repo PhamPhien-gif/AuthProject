@@ -24,7 +24,8 @@ public sealed class AuthRateLimitMiddleware(RequestDelegate next)
             if (quota.AccountPermitLimit > 0 && await Email(context) is { } email)
                 demands.Add(new(name + ":account:" + keys.ForAccount(email), quota.AccountPermitLimit, TimeSpan.FromSeconds(quota.WindowSeconds)));
             // Only a principal established by server authentication can supply a session partition.
-            if (quota.SessionPermitLimit > 0 && context.User.Identity?.IsAuthenticated == true
+            if (quota.SessionPermitLimit > 0 && context.GetEndpoint()?.Metadata.GetMetadata<AuthRateLimitAttribute>()?.VerifiedCookieSession != true
+                && context.User.Identity?.IsAuthenticated == true
                 && Guid.TryParse(context.User.FindFirst("sid")?.Value, out var session))
                 demands.Add(new(name + ":session:" + keys.ForSession(session), quota.SessionPermitLimit, TimeSpan.FromSeconds(quota.WindowSeconds)));
             decision = store.Acquire(demands);

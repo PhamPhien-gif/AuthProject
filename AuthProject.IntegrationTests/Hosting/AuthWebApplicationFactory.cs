@@ -33,6 +33,7 @@ public sealed class AuthWebApplicationFactory(string environment = "Testing", Sq
                 ["Persistence:Enabled"] = "false",
                 ["Audit:Log4Net:Enabled"] = "false",
                 ["Auth:Jwt:Enabled"] = "false",
+                ["Auth:Refresh:Enabled"] = "false",
                 ["Auth:Registration:Enabled"] = "false",
                 ["Auth:Email:Enabled"] = "false",
                 ["Auth:Google:Enabled"] = "false",

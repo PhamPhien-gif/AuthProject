@@ -1,6 +1,6 @@
 # TDD, xUnit và kiểm soát chất lượng
 
-Tài liệu này là kế hoạch kiểm thử. **P06 đã có test flow Register/Verify/Resend/Login/JWT/GetMe**, MFA/rotation vẫn chờ bước tương ứng;
+Tài liệu này là kế hoạch kiểm thử. **P07 đã có test Register/Verify/Resend/Login/JWT/GetMe/Rotation/Logout/CSRF**, MFA vẫn chờ bước tương ứng;
 không dùng kết quả test nền tảng để báo hệ thống Auth đã hoàn tất.
 Xem [bằng chứng P01](06-P01-RESULTS.md) và [lệnh chạy local](05-LOCAL-DEVELOPMENT.md#6-chạy-test-p01).
 P02: [bằng chứng Red/Green và giới hạn](07-P02-RESULTS.md).
@@ -14,6 +14,10 @@ Regression Release P05: **77 unit + 81 HTTP/startup + 38 SQL = 196 passed**, 0 f
 P06: [bằng chứng TDD/JWT thật/SQL concurrency](11-P06-RESULTS.md). LOGIN-01/JWT-01/ME-01 đã có
 test; role matrix cơ bản và session revoke test dùng test-only controller/SQL mutation, chưa phải admin/logout API.
 Regression P06: **90 unit + 88 HTTP/startup + 81 SQL = 259 passed**, 0 failed/skipped.
+P07: [bằng chứng rotation/reuse/concurrency/CSRF và rollback](12-P07-RESULTS.md).
+SQL thật kiểm tra parallel refresh và refresh-vs-logout, cùng owner-scoped revoke/logout-all;
+HTTP kiểm tra cookie/CSRF/CORS, access expiry/revocation và session quota sau verified cookie lookup.
+Test cookie qua HTTP không thay thế smoke test policy cookie/TLS trong browser thực tế.
 
 ## 1. Chu trình cho mỗi lát cắt nghiệp vụ
 

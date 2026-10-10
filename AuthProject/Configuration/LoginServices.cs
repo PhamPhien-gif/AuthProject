@@ -1,3 +1,4 @@
+using AuthProject.Security;
 using AuthProject.DTOs;
 using AuthProject.Exceptions;
 using AuthProject.Repositories;
@@ -72,7 +73,7 @@ public static class LoginServices
 
 internal sealed class UnavailableLoginService : ILoginService
 {
-    public Task<AuthResult> LoginAsync(LoginRequest request, string traceId, string? ip, string? userAgent, CancellationToken cancellationToken)
+    public Task<SessionGrant> LoginAsync(LoginRequest request, string traceId, string? ip, string? userAgent, CancellationToken cancellationToken)
         => throw new AppException("SERVICE_UNAVAILABLE");
     public Task<MeResponse> GetMeAsync(Guid userId, CancellationToken cancellationToken) => throw new AppException("SERVICE_UNAVAILABLE");
 }

@@ -1,3 +1,4 @@
+using AuthProject.Security;
 using AuthProject.DTOs;
 using AuthProject.Exceptions;
 using AuthProject.Repositories.Interfaces;
@@ -8,7 +9,7 @@ namespace AuthProject.Services;
 
 public sealed class LoginService(IPasswordCredentialGate gate, ILoginStore store) : ILoginService
 {
-    public async Task<AuthResult> LoginAsync(LoginRequest request, string traceId, string? ip, string? userAgent, CancellationToken cancellationToken)
+    public async Task<SessionGrant> LoginAsync(LoginRequest request, string traceId, string? ip, string? userAgent, CancellationToken cancellationToken)
     {
         var accepted = await gate.CheckAsync(request.Email!, request.Password!, traceId, cancellationToken);
         return await store.CompleteAsync(accepted, request.Password!, traceId, ip, userAgent, cancellationToken)

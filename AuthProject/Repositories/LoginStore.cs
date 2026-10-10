@@ -1,3 +1,4 @@
+using AuthProject.Security;
 using AuthProject.DTOs;
 using AuthProject.Configuration;
 using AuthProject.Data;
@@ -6,7 +7,6 @@ using AuthProject.Exceptions;
 using AuthProject.Logging;
 using AuthProject.Repositories.Interfaces;
 using AuthProject.Security.Interfaces;
-using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -15,7 +15,7 @@ namespace AuthProject.Repositories;
 public sealed class LoginStore(IDbContextFactory<AuthDbContext> factory, IOptions<JwtOptions> options, IPasswordHashService passwords,
     IAccessTokenIssuer tokens, IAuditPayloadProtector protector, TimeProvider clock) : ILoginStore
 {
-    public async Task<AuthResult?> CompleteAsync(PasswordAcceptance accepted, string password, string traceId, string? ip, string? userAgent, CancellationToken cancellationToken)
+    public async Task<SessionGrant?> CompleteAsync(PasswordAcceptance accepted, string password, string traceId, string? ip, string? userAgent, CancellationToken cancellationToken)
     {
         await using var db = await factory.CreateDbContextAsync(cancellationToken);
         await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
@@ -41,10 +41,8 @@ public sealed class LoginStore(IDbContextFactory<AuthDbContext> factory, IOption
             CreatedAt = now, LastSeenAt = now, IdleExpiresAt = now.AddSeconds(options.Value.SessionIdleLifetimeSeconds),
             AbsoluteExpiresAt = now.AddSeconds(options.Value.SessionAbsoluteLifetimeSeconds) };
         db.Sessions.Add(session);
-        // P06 prepares the digest record only. No refresh secret/cookie is exposed before P07 rotation exists.
-        var refreshBytes = RandomNumberGenerator.GetBytes(32);
-        var digest = Convert.ToHexString(SHA256.HashData(refreshBytes));
-        CryptographicOperations.ZeroMemory(refreshBytes);
+        var refresh = RefreshTokenSecret.Create();
+        var digest = RefreshTokenSecret.Digest(refresh)!;
         db.RefreshTokens.Add(new RefreshToken { SessionId = session.Id, TokenHash = digest, CreatedAt = now, ExpiresAt = session.IdleExpiresAt });
         db.LoginHistories.Add(new LoginHistory { UserId = user.Id, SessionId = session.Id, Method = AuthenticationMethod.Password,
             Outcome = AuditOutcome.Success, ReasonCode = AuditReason.None, OccurredAt = now, TraceId = traceId,
@@ -55,7 +53,7 @@ public sealed class LoginStore(IDbContextFactory<AuthDbContext> factory, IOption
         var token = tokens.Issue(session); // Signing failure rolls back everything staged in this transaction.
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
-        return new(token, "Bearer", options.Value.AccessTokenLifetimeSeconds, new(user.Id, user.Email, user.DisplayName, roles));
+        return new(new(token, "Bearer", options.Value.AccessTokenLifetimeSeconds, new(user.Id, user.Email, user.DisplayName, roles)), refresh, session.IdleExpiresAt);
     }
 
     public async Task<MeResponse?> GetMeAsync(Guid userId, CancellationToken cancellationToken)

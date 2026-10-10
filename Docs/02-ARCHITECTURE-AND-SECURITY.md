@@ -1,6 +1,6 @@
 # Kiến trúc và thiết kế bảo mật
 
-**Thiết kế toàn hệ thống; P00–P06 đã triển khai, Register/Verify/Resend/Login/GetMe đã có; các flow còn lại chờ lệnh.** Các giá trị timeout/quota là baseline
+**Thiết kế toàn hệ thống; P00–P07 đã triển khai, gồm rotation/reuse/logout/session/CSRF; các flow còn lại chờ lệnh.** Các giá trị timeout/quota là baseline
 để test, sẽ điều chỉnh bằng đo đạc ở P13. Xem thứ tự triển khai ở [roadmap](01-IMPLEMENTATION-PLAN.md).
 
 ## 1. Layered Architecture
@@ -176,8 +176,8 @@ khóa lại User và kiểm tra trạng thái/version/lockout trước rehash + 
 Signing/audit/save failure rollback transaction completion; primary-factor audit đã commit vẫn giữ lại.
 Account MFA không tạo full session, chỉ history Pending + 403 step-up đến P09; không giả tạo OTP challenge.
 Idle/absolute session expiry được tính tại login, mặc định 7/30 ngày; P06 chưa extend idle/LastSeenAt mỗi request.
-Refresh digest dự phòng được tạo từ 32 random bytes rồi bỏ secret, chưa gửi cookie hoặc cho client refresh.
-Rotation/logout/CSRF ở P07 phải hoàn tất trước phát hành public.
+P07 thay digest dự phòng bằng secret CSPRNG cấp qua cookie khi module Refresh bật.
+Không tăng LastSeenAt/idle trên GET hoặc bearer request; chỉ rotation thành công kéo dài idle.
 
 Refresh token: ít nhất 32 random bytes CSPRNG → Base64URL; DB lưu SHA-256 digest, không plaintext.
 Hash nhanh phù hợp token entropy cao; không dùng thiết kế này cho OTP/password entropy thấp.
@@ -185,8 +185,9 @@ Baseline idle expiry 7 ngày, absolute lifetime session 30 ngày; refresh không
 
 Rotation transaction:
 
-1. Lookup token hash, lock session và token theo thứ tự ổn định; check account/version/expiry/revocation.
-2. Nếu token active: conditional consume chỉ khi chưa consumed/revoked và rowversion đúng.
+1. Lookup token hash → user/session ID; lock User trước AuthSession bằng UPDLOCK/ROWLOCK trong transaction,
+   đọc lại token rồi check account/version/expiry/revocation. Mutator P07 và login cùng khóa User trước.
+2. Nếu token active: consume dưới session lock, SaveChanges dùng rowversion; không thể rotate cùng lúc.
 3. Insert successor, đặt ReplacedBy, cập nhật session idle expiry, audit; commit rồi mới trả token.
 4. Nếu token đã consumed: revoke session + toàn family, lưu audit **và commit**; sau đó trả 401.
    Không throw trước commit khiến transaction rollback mất dấu revoke.
@@ -197,6 +198,12 @@ revoke family; token mới của request thắng cũng không còn dùng đượ
 Client phải single-flight refresh. Retry sau network timeout có thể yêu cầu login lại;
 không mở grace window khi chưa có thiết kế idempotency chống replay.
 Refresh-vs-logout cùng khóa session để không sinh successor active sau revoke.
+P07 dùng ba SaveChanges trong cùng transaction: consume để giải phóng unique index active-token,
+insert successor/audit rồi gán ReplacedById sau khi FK target tồn tại; không có trạng thái nửa chừng được commit.
+Signing/protection/save failure rollback. Logout-all tăng AuthVersion dưới user lock, revoke các family của actor;
+primary-factor acceptance trước logout-all bị từ chối khi login completion kiểm tra lại version.
+Consumed tombstone còn được kiểm tra khi expiry cũ đã qua nhưng family vẫn active. Reuse được xử lý
+trước quota session; session đã revoke/expired hoặc account không còn hợp lệ thì trả invalid, không audit lặp.
 Giữ record consumed đến absolute session expiry + retention điều tra; cleanup không phá reuse detection.
 [RFC 9700, refresh token rotation](https://www.rfc-editor.org/rfc/rfc9700.html#section-4.14).
 
@@ -213,6 +220,16 @@ Có endpoint lấy CSRF request token; chỉ exact allowed origins, không wildc
 OAuth correlation cookie tách riêng, SameSite=None + Secure khi middleware yêu cầu callback cross-site.
 Nếu frontend khác site, phải chốt cookie/CSRF/CORS và kiểm thử browser trước thay đổi SameSite.
 Native client/BFF transport là extension sau, chưa bật hai transport cạnh tranh trong baseline.
+
+P07 dùng ASP.NET Core IAntiforgery + Data Protection, cookie context HttpOnly/Secure/Strict/Path=/,
+request token trong header X-CSRF-TOKEN. Token context độc lập với identity access bằng cách dùng
+anonymous principal chỉ trong GetAndStoreTokens/ValidateRequestAsync, khôi phục actor trong finally;
+ownership/authorization vẫn dùng validated bearer actor. Điều này giữ CSRF hợp lệ qua login/access expiry.
+Login cũng kiểm tra CSRF vì cấp cookie; logout-all và owner revoke cùng kiểm tra header/origin.
+Origin exact configured HTTPS authority, hoặc Referer origin nếu Origin absent; không có cả hai bị từ chối.
+CSRF/Origin không chứng minh user identity, không bảo vệ khỏi XSS, không thay thế JWT hoặc cookie ownership.
+Module mặc định tắt, bật yêu cầu JWT/Persistence và allowlist hợp lệ. Swagger hiển thị X-CSRF-TOKEN
+trên các thao tác có filter; lấy token/cookie bằng GET csrf trong cùng browser trước Try it out.
 
 ## 7. Email OTP
 
@@ -281,7 +298,7 @@ không tăng count hoặc kéo dài khóa. Hết khóa cho thử lại, password
 work factor. Unknown/wrong/locked/disabled/unverified đều trả `AUTH_INVALID_CREDENTIALS` 401.
 Thành công mới là primary factor (`PasswordVerified`, outcome Pending); P06/P09 hoàn tất phiên/MFA.
 Session quota chỉ lấy `sid` từ principal server đã xác thực; P06 cần đặt authentication trước
-middleware policy. P07 phải enforce quota session của anonymous refresh sau khi tra token đã xác minh,
+middleware policy. P07 enforce quota session của anonymous refresh sau khi tra token đã xác minh,
 không dùng token hoặc session ID chưa tin cậy làm key.
 
 Trusted proxy mặc định tắt; loại bỏ implicit loopback trust. Khi bật phải khai báo

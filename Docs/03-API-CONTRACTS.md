@@ -1,6 +1,6 @@
 # API, DTO và lỗi thống nhất
 
-**P06 đã triển khai Register, Verify Email, Resend, Login và GetMe; các endpoint còn lại chờ bước tương ứng.** Prefix `/api/v1`.
+**P07 đã triển khai Register/Verify/Resend, Login/GetMe và CSRF/Refresh/Logout/Logout-all/Sessions; các endpoint còn lại chờ bước tương ứng.** Prefix `/api/v1`.
 JSON camelCase, UTC ISO-8601, ID opaque/Guid. Thành công dùng DTO trực tiếp, không bọc mọi
 response trong `success/message/data`; lỗi dùng `application/problem+json` thống nhất.
 
@@ -21,7 +21,7 @@ response trong `success/message/data`; lỗi dùng `application/problem+json` th
 | POST /auth/logout-all | Authenticated + CSRF | 204, revoke tất cả session của actor | P07 |
 | GET /auth/me | Authenticated | 200 MeResponse | P06 |
 | GET /auth/sessions | Authenticated | Danh sách session của actor, phân trang | P07 |
-| DELETE /auth/sessions/{sessionId} | Owner | 204; unknown/non-owner cùng 404 | P07 |
+| DELETE /auth/sessions/{sessionId} | Owner + CSRF | 204; unknown/non-owner cùng 404 | P07 |
 | POST /auth/password/forgot | Anonymous | EmailRequest → generic 202 | P08 |
 | POST /auth/password/reset | Anonymous | ResetPasswordRequest → 204, không auto-login | P08 |
 | POST /auth/password/change | Authenticated + step-up | ChangePasswordRequest → 204, revoke tất cả session | P08/P09 |
@@ -106,7 +106,8 @@ AuthResult (200):
 ```
 
 Refresh token chỉ trong Set-Cookie HttpOnly theo browser baseline; không trong JSON.
-P06 chỉ trả access token và profile, chưa có refresh cookie/token dùng được; flow này thuộc P07.
+P07 cấp refresh cookie khi `Auth:Refresh:Enabled=true`; Login yêu cầu CSRF trong chế độ này.
+Khi module Refresh tắt, Login vẫn dùng chế độ access-only P06 và không gửi refresh cookie.
 Account đã bật MFA nhận 403 AUTH_STEP_UP_REQUIRED sau password hợp lệ, chưa có challenge/tokens đến P09.
 Token response có `Cache-Control: no-store`. Register/forgot/resend cùng generic 202
 `{"message":"Nếu yêu cầu hợp lệ, hướng dẫn sẽ được gửi đến email của bạn."}`.
@@ -173,6 +174,7 @@ FluentValidation lỗi dùng `VALIDATION_FAILED` và field name camelCase. Respo
 | 401 | AUTH_UNAUTHENTICATED / AUTH_SESSION_INVALID | Không token, JWT không hợp lệ, session revoke |
 | 401 | AUTH_REFRESH_INVALID | Refresh sai/expired/reuse; reason chi tiết chỉ ở audit |
 | 403 | AUTH_FORBIDDEN / AUTH_STEP_UP_REQUIRED | Đã xác thực nhưng không có quyền/bằng chứng gần đây |
+| 403 | AUTH_CSRF_INVALID | Origin/Referer hoặc CSRF cookie/header không hợp lệ |
 | 404 | RESOURCE_NOT_FOUND | Missing route/resource hoặc hide non-owner |
 | 405 | METHOD_NOT_ALLOWED | Giữ Allow header khi route có method khác |
 | 409 | RESOURCE_CONFLICT / AUTH_LAST_ADMIN / AUTH_LAST_LOGIN_METHOD | Xung đột hợp lệ để công khai |
@@ -198,7 +200,41 @@ Filter result đổi error payload tùy ý của controller thành schema chuẩ
 khi cần giữ code cụ thể trong catalog. Callback JwtBearer và OnRejected của rate limiter sẽ nối ở
 P06/P04; test P02 kiểm chứng response 401/403/429 và bảo toàn protocol headers, chưa kiểm chứng JWT/quota.
 
-## 5. RBAC matrix
+## 5. Hợp đồng session P07
+
+- `GET /auth/csrf`: `{ "requestToken": "<antiforgery-token>" }`, kèm cookie
+  `__Host-AuthProject.Csrf`, HttpOnly/Secure/SameSite=Strict/Path=/, không Domain.
+- Login/Refresh/Logout/Logout-all/DELETE session cần header `X-CSRF-TOKEN` và context cookie
+  khi Refresh bật. Origin phải exact allowlist; nếu không có Origin, dùng origin của Referer.
+  Thiếu cả hai hoặc `Origin: null` → 403. CSRF request token bind context cookie, độc lập với
+  bearer identity để tiếp tục dùng sau login hoặc access expiry; bearer principal được giữ nguyên
+  cho authorization/ownership. CSRF token không thay thế authentication.
+- Refresh nhận cookie `__Secure-AuthProject.Refresh`, không nhận token từ JSON/query.
+  Secret 32 bytes CSPRNG, canonical Base64URL 43 ký tự; DB chỉ lưu SHA-256 digest.
+  Cookie HttpOnly/Secure/SameSite=Strict/Path=/api/v1/auth, không Domain, Expires theo idle/absolute cap.
+- Refresh success → AuthResult và cookie mới; không tạo LoginHistory success mới. `expiresIn`
+  tối đa cấu hình JWT và được giới hạn bởi thời gian session còn lại. Refresh kéo dài idle,
+  cập nhật LastSeenAt, giữ nguyên absolute expiry/AuthenticatedAt/AuthVersion.
+- Refresh invalid/unknown/expired/consumed → generic 401 AUTH_REFRESH_INVALID và clear refresh
+  cookie đúng flags/path. Consumed token của family còn hoạt động revoke toàn family, commit trước 401.
+  Strict reuse: parallel refresh có tối đa một success; successor cũng mất hiệu lực sau reuse commit.
+  Client phải single-flight; mất response sau commit có thể phải login lại, chưa có grace window.
+- Quota refresh: IP ở middleware; session sau lookup token/session tin cậy. 429 RATE_LIMITED +
+  Retry-After, không consume hoặc clear cookie. Reuse của consumed token được xử lý trước quota session.
+- Logout dùng cookie để chọn family, không cần access JWT còn hạn. Missing/invalid/already revoked
+  cookie vẫn 204 + clear cookie nếu CSRF hợp lệ. Logout-all cần JWT + CSRF, tăng AuthVersion và revoke
+  toàn session của actor, chặn primary-factor acceptance cũ hoàn tất login sau đó.
+- Sessions nhận PagingRequest, page ≥ 1, pageSize 1–100, order CreatedAt DESC rồi Id; actor từ sub.
+  Response `{ "items": [...], "page": 1, "pageSize": 20, "totalCount": 0 }`.
+  Mỗi item có id/createdAt/lastSeenAt/idleExpiresAt/absoluteExpiresAt/revokedAt/isCurrent;
+  gồm cả session đã revoke, không digest/raw cookie/AuthVersion. DELETE unknown và non-owner cùng 404;
+  Guid sai shape → INVALID_REQUEST, Guid rỗng → VALIDATION_FAILED; revoke lại session đã revoke vẫn 204
+  khi caller còn một access session hợp lệ. Xóa current session thì clear refresh cookie.
+- Refresh module tắt: CSRF/Refresh/Logout trả 503; các route protected vẫn cần JWT trước khi gọi service.
+  CORS chỉ exact configured origins, allow credentials + GET/POST/DELETE + Content-Type/Authorization/
+  X-CSRF-TOKEN; expose X-Trace-Id/Retry-After. SameSite Strict dành cho browser cùng site.
+
+## 6. RBAC matrix
 
 | Hành vi | Anonymous | User | Admin |
 |---|---|---|---|

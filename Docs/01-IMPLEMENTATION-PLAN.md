@@ -1,12 +1,13 @@
 # Kế hoạch triển khai Auth
 
-Ngày lập: 09/10/2026. Cập nhật P06: 10/10/2026. Trạng thái: **P00–P06 đã triển khai, P07–P13 chờ lệnh**.
+Ngày lập: 09/10/2026. Cập nhật P07: 10/10/2026. Trạng thái: **P00–P07 đã triển khai, P08–P13 chờ lệnh**.
 Kết quả và giới hạn kiểm chứng P01: [báo cáo P01](06-P01-RESULTS.md).
 Kết quả và cách mở rộng P02: [báo cáo P02](07-P02-RESULTS.md).
 Kết quả persistence, hashing và audit: [báo cáo P03](08-P03-RESULTS.md).
 Kết quả chống brute force, lockout và proxy: [báo cáo P04](09-P04-RESULTS.md).
 Kết quả Register/Verify/Resend và SMTP outbox: [báo cáo P05](10-P05-RESULTS.md).
 Kết quả Login/JWT/GetMe và session validation: [báo cáo P06](11-P06-RESULTS.md).
+Kết quả rotation/reuse/logout/session/CSRF: [báo cáo P07](12-P07-RESULTS.md).
 Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant hoặc microservice.
 
 ## 1. Nguyên tắc điều khiển phạm vi
@@ -29,7 +30,7 @@ Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant h
 | P04 | Bắt buộc | Rate limiting, lockout, trusted proxy | P03 | Hoàn tất — 155 test pass toàn solution |
 | P05 | Auth cơ bản | Email, Register, Verify Email | P04 | Hoàn tất — 196 test pass toàn solution |
 | P06 | Auth cơ bản | Login, JWT, authentication, GetMe | P05 | Hoàn tất — 259 test pass toàn solution |
-| P07 | Auth cơ bản | Rotation, reuse detection, logout/revoke | P06 | Chờ lệnh |
+| P07 | Auth cơ bản | Rotation, reuse detection, logout/revoke | P06 | Hoàn tất — 321 test pass toàn solution |
 | P08 | Vòng đời tài khoản | Forgot/Reset/Change password | P07 | Chờ lệnh |
 | P09 | MFA | Email OTP, enrollment, disable, recovery | P08 | Chờ lệnh |
 | P10 | Social login | Google OAuth 2.0/OIDC, linking | P09 | Chờ lệnh |
@@ -51,7 +52,7 @@ Ghi audit bắt đầu ở P03 và được nối vào từng flow ngay khi flow
 - [x] Bỏ WeatherForecast và test rỗng từ template.
 - [x] Thêm `.gitignore`, `.editorconfig`, `.env.example`, pin SDK 8 hiện có.
 - [x] Viết Docs cho kiến trúc, API, TDD, local và roadmap.
-- [x] P01–P06 đã triển khai theo lệnh riêng; P07–P13 chưa thực hiện.
+- [x] P01–P07 đã triển khai theo lệnh riêng; P08–P13 chưa thực hiện.
 
 Nghiệm thu: restore/build được; runner xUnit chạy được nhưng chưa có test; ignore giữ lại
 source, Docs và file example, loại bỏ output/secrets. Kết quả thực tế xem [local](05-LOCAL-DEVELOPMENT.md).
@@ -194,6 +195,15 @@ Chi tiết test, config và giới hạn: [kết quả P06](11-P06-RESULTS.md).
 Red: rotation happy path; old-token replay; parallel refresh; refresh vs logout race; expiry;
 logout khiến access cũ trả 401; logout-all chỉ tác động đúng user; session người khác không thể revoke.
 Nghiệm thu: test concurrency trên SQL Server thật, không dựa trên EF InMemory.
+
+Kết quả P07: refresh opaque qua cookie HttpOnly/Secure/Strict, hash-only SQL, rotation atomic,
+strict reuse commit revoke trước 401. User → session locks serialize parallel refresh/logout;
+session idle sliding chỉ tại rotation, absolute cap và JWT expiry cap. Logout current/all,
+owner session list/revoke và immediate bearer invalidation đã nối. CSRF context cookie/header,
+Origin/Referer validation, exact CORS allowlist, verified cookie session quota và Swagger header đã có.
+Không có migration mới, không sửa `.env` hoặc cập nhật database ứng dụng. Module Refresh mặc định tắt;
+bật cần JWT/Persistence/origins. Release: **110 unit + 98 HTTP/startup + 113 SQL = 321 passed**,
+0 failed/skipped, build 0 warning/error. Chi tiết TDD, config và giới hạn: [kết quả P07](12-P07-RESULTS.md).
 
 ### P08 — Password recovery và thay đổi credentials
 

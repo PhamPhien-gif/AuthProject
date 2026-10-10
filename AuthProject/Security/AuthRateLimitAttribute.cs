@@ -6,4 +6,5 @@ public enum AuthRatePolicy { Api, Login, Register, Otp, Refresh, Recovery, Googl
 public sealed class AuthRateLimitAttribute(AuthRatePolicy policy) : Attribute
 {
     public AuthRatePolicy Policy { get; } = policy;
+    public bool VerifiedCookieSession { get; set; }
 }

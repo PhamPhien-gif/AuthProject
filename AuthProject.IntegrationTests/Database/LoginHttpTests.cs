@@ -285,7 +285,7 @@ public sealed class LoginHttpTests(SqlServerFixture fixture) : IClassFixture<Sql
     }
     private sealed class UnavailableSessionStore : ILoginStore
     {
-        public Task<AuthResult?> CompleteAsync(PasswordAcceptance accepted, string password, string traceId, string? ip, string? userAgent, CancellationToken token) => throw new NotSupportedException();
+        public Task<SessionGrant?> CompleteAsync(PasswordAcceptance accepted, string password, string traceId, string? ip, string? userAgent, CancellationToken token) => throw new NotSupportedException();
         public Task<MeResponse?> GetMeAsync(Guid user, CancellationToken token) => throw new NotSupportedException();
         public Task<string[]?> ValidateSessionAsync(Guid user, Guid session, long version, CancellationToken token) => throw new UnavailableDatabase();
     }

@@ -40,9 +40,9 @@ public sealed class ApiProblems
     }
 }
 
-public sealed class ApiProblemResult(ProblemDetails problem) : IActionResult
+public sealed class ApiProblemResult(ProblemDetails problem) : ActionResult
 {
-    public Task ExecuteResultAsync(ActionContext context) => context.HttpContext.RequestServices
+    public override Task ExecuteResultAsync(ActionContext context) => context.HttpContext.RequestServices
         .GetRequiredService<ApiProblems>().WriteAsync(context.HttpContext, problem, context.HttpContext.RequestAborted);
 }
 

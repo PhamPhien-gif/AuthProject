@@ -425,6 +425,68 @@ Rehash/session/digest/history success/audit completion cùng transaction; primar
 History ghi failure cho password gate, Pending cho MFA primary factor, Success khi session commit;
 history query API/log4net delivery vẫn thuộc P12.
 
-Refresh digest hiện là record dự phòng, secret bị bỏ sau hash; client chưa dùng được để refresh.
-P07 hoàn thiện cấp refresh cookie, rotation, reuse detection, revoke/logout và CSRF trước public release.
+Ở thời điểm P06, refresh chỉ có digest dự phòng; P07 đã thay bằng cookie/rotation/reuse/logout/CSRF.
+Khi bật module Refresh theo mục 13, Login yêu cầu thêm CSRF header/context cookie.
 Kết quả test và bằng chứng TDD: [báo cáo P06](11-P06-RESULTS.md), reports `TestResults/P06/`.
+
+## 13. Bật Refresh/Logout/Sessions/CSRF P07
+
+P07 dùng lại schema P03/P04, **không có migration mới và không cần chạy EF update riêng cho P07**.
+Giữ cấu hình JWT/Persistence và RSA key ở mục 12; thêm vào `.env` hiện có:
+
+```dotenv
+Auth__Refresh__Enabled=true
+Auth__Refresh__AllowedOrigins__0='https://localhost:7148'
+# Chỉ thêm khi browser client thực sự chạy ở origin này:
+# Auth__Refresh__AllowedOrigins__1='https://localhost:5173'
+```
+
+Origins là origin browser (scheme/host/port), không phải issuer/audience JWT. Chỉ HTTPS exact,
+không wildcard, path, query, credentials hay dấu `/` cuối. HTTPS profile hiện tại là port 7148.
+Restart API sau sửa `.env`. Flag mặc định false; bật thiếu JWT/origins sẽ fail startup an toàn.
+Không chỉnh `.env` tự động hoặc update database ứng dụng trong phiên triển khai P07.
+
+Thử bằng Swagger cùng HTTPS origin đã allowlist:
+
+1. Gọi `GET /api/v1/auth/csrf`; browser giữ context cookie HttpOnly, response có `requestToken`.
+2. Copy requestToken vào ô header `X-CSRF-TOKEN` của Login; nhập email/password user Active/verified.
+   Login trả JWT và đặt refresh cookie HttpOnly/Secure/Strict/Path=/api/v1/auth, không trong JSON.
+3. Authorize bằng access JWT để gọi Me/Sessions. Refresh/Logout không cần access token còn hạn;
+   browser phải giữ cookie và gửi header CSRF trên từng POST. Swagger đã có ô nhập header.
+4. Gọi Refresh tuần tự → JWT mới + cookie mới. Không gửi refresh song song: replay token đã dùng
+   sẽ revoke toàn family, cả access/successor của lần thắng, và trả generic 401.
+5. Logout → 204, clear cookie; access cũ gọi Me sau revoke commit → 401.
+   Logout-all cần access JWT + CSRF, thu hồi mọi session của actor và clear cookie.
+6. GET Sessions nhận page/pageSize; DELETE session cần JWT + CSRF, chỉ owner, non-owner/unknown cùng 404.
+
+Swagger gửi Referer cùng origin; browser POST thường gửi Origin. Nếu client CLI/test không tự gửi
+hai header này, thêm `Origin: https://localhost:7148` và giữ cookie jar. Không đưa cookie/token vào URL/log.
+CSRF token bind context cookie, không bind access identity, nên có thể dùng sau login hoặc JWT hết hạn.
+Thiếu/sai context cookie, CSRF header hoặc origin → 403 AUTH_CSRF_INVALID, không consume/revoke refresh.
+
+Ví dụ client browser cùng site, gọi từ origin HTTPS đã cấu hình:
+
+```javascript
+const api = 'https://localhost:7148';
+const csrfResponse = await fetch(`${api}/api/v1/auth/csrf`, { credentials: 'include' });
+if (!csrfResponse.ok) throw new Error('Cannot obtain CSRF context');
+const { requestToken } = await csrfResponse.json();
+const response = await fetch(`${api}/api/v1/auth/login`, {
+  method: 'POST', credentials: 'include',
+  headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': requestToken },
+  body: JSON.stringify({ email, password })
+});
+// Check response.ok; keep accessToken in memory. Refresh uses the same CSRF header and credentials.
+```
+
+CORS allow credentials chỉ cho origins trong danh sách. SameSite=Strict dành cho browser cùng site
+(localhost khác port qua HTTPS phù hợp); allowlist không tự khiến browser gửi Strict cookie khác site.
+Chưa thay SameSite hoặc triển khai frontend/BFF/native transport. Browser cookie policy/TLS/real proxy
+vẫn cần smoke test khi deploy; WebApplicationFactory không mô phỏng toàn bộ browser.
+
+Idle 7 ngày được kéo dài chỉ khi refresh thành công, absolute 30 ngày không kéo dài. JWT và cookie
+được cap theo thời gian session còn lại. Quota refresh mặc định 60/phút/IP và 30/phút/verified session;
+429 có Retry-After và giữ cookie/token để retry sau cooldown. Không retry song song hoặc dùng token cũ
+sau response refresh thành công. Response bị mất sau commit có thể buộc login lại (strict reuse).
+Module tắt: Login access-only P06, không refresh cookie; CSRF/Refresh/Logout trả 503.
+Audit state/outbox SQL đã ghi; worker phát log4net vẫn P12. Xem [kết quả P07](12-P07-RESULTS.md).

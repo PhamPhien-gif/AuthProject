@@ -19,6 +19,7 @@ public static class ApiErrors
         new("AUTH_UNAUTHENTICATED", 401, "Yêu cầu xác thực."),
         new("AUTH_SESSION_INVALID", 401, "Phiên không hợp lệ."),
         new("AUTH_REFRESH_INVALID", 401, "Refresh token không hợp lệ."),
+        new("AUTH_CSRF_INVALID", 403, "Yêu cầu bảo vệ CSRF không hợp lệ."),
         new("AUTH_FORBIDDEN", 403, "Bạn không có quyền thực hiện yêu cầu này."),
         new("AUTH_STEP_UP_REQUIRED", 403, "Yêu cầu xác minh lại danh tính."),
         new("RESOURCE_NOT_FOUND", 404, "Không tìm thấy tài nguyên."),
