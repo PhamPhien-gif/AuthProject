@@ -37,6 +37,9 @@ public sealed class GoogleOptions
     public string ClientId { get; set; } = string.Empty;
     public string ClientSecret { get; set; } = string.Empty;
     public string CallbackPath { get; set; } = "/signin-google";
+    public string CallbackUri { get; set; } = string.Empty;
+    public string CompletionUrl { get; set; } = string.Empty;
+    public string ErrorUrl { get; set; } = string.Empty;
 }
 
 public sealed class EmailOtpOptions

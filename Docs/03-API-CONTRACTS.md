@@ -1,6 +1,6 @@
 # API, DTO và lỗi thống nhất
 
-**P09 đã triển khai các flow P05–P08 và MFA Email OTP/enrollment/step-up/recovery; Google và endpoint quản trị còn chờ bước tương ứng.** Prefix `/api/v1`.
+**P10 đã triển khai các flow P05–P09 và Google/OIDC; endpoint quản trị chờ P11.** Prefix `/api/v1`.
 JSON camelCase, UTC ISO-8601, ID opaque/Guid. Thành công dùng DTO trực tiếp, không bọc mọi
 response trong `success/message/data`; lỗi dùng `application/problem+json` thống nhất.
 
@@ -34,11 +34,12 @@ response trong `success/message/data`; lỗi dùng `application/problem+json` th
 | POST /auth/mfa/email/disable | Authenticated + step-up/current factor | 204; revoke sessions + invalidate codes/challenges | P09 |
 | POST /auth/mfa/recovery/verify | Bound cookie + CSRF; step-up cần bearer actor | RecoveryCodeRequest → 200 AuthResult hoặc 204 step-up, consume code; reject enrollment | P09 |
 | POST /auth/mfa/recovery/regenerate | Authenticated + step-up/current factor | Bộ codes mới một lần, bộ cũ hết hiệu lực | P09 |
-| GET /auth/google/start | Anonymous, browser navigation | 302 Google, bind login state + return path | P10 |
+| GET /auth/google/start | Anonymous, browser navigation | 302 Google, protected state + browser binding, URL client cố định | P10 |
 | GET /signin-google | Provider callback, correlation/state | Middleware callback → redirect fixed completion page | P10 |
-| POST /auth/google/complete | Completion ticket + browser binding/CSRF | AuthResult hoặc MfaChallengeResult | P10 |
-| POST /auth/google/link | Authenticated + step-up/CSRF | Bắt đầu provider challenge gắn actor + Link purpose | P10 |
-| DELETE /auth/google/link | Authenticated + step-up | 204; không được xóa login method cuối | P10 |
+| POST /auth/google/complete | Completion ticket + browser binding/CSRF; link/reauth cần bearer cùng actor | 200 AuthResult, 202 MfaChallengeResponse hoặc 204 quản lý | P10 |
+| POST /auth/google/link | Authenticated + step-up/CSRF | 200 GoogleAuthorizationResponse.authorizationUrl; browser điều hướng Google | P10 |
+| POST /auth/google/reauthenticate | Authenticated + CSRF | 200 authorizationUrl, max_age=0; completion renew primary hoặc 202 local MFA step-up | P10 |
+| DELETE /auth/google/link | Authenticated + step-up/CSRF | 204 + revoke; không được xóa login method cuối | P10 |
 | GET /users/me/login-history | Authenticated | History chỉ actor, phân trang | P12 |
 | GET /admin/users | Admin + MFA session | Danh sách user, phân trang/filter | P11 |
 | PATCH /admin/users/{userId}/status | Admin + step-up | ChangeUserStatusRequest → 204 + revoke | P11 |
@@ -49,6 +50,15 @@ response trong `success/message/data`; lỗi dùng `application/problem+json` th
 Mặc định role catalog chỉ seed User/Admin; custom role CRUD/permission editor chưa cần khi chưa có business feature.
 Callback `/signin-google` là protocol route middleware, không áp schema JSON cho 302 thành công;
 lỗi protocol redirect về fixed error page chỉ có mã lỗi công khai + traceId, không raw provider response.
+Callback thành công về CompletionUrl#ticket=...; ticket chỉ 60 giây, SHA256 digest SQL,
+một lần, không phải JWT/provider token. POST complete nhận JSON {"ticket":"..."};
+login không gửi bearer cũ, link/reauth gửi bearer của session đã bắt đầu flow.
+Cookie GoogleFlow HttpOnly/Secure/Lax path / phục vụ callback GET; GoogleCompletion
+HttpOnly/Secure/Strict path /api/v1/auth và CSRF bảo vệ completion. Một browser chỉ giữ một flow.
+Link/unlink thay đổi identity tăng AuthVersion và revoke mọi session; no-op link cùng subject chỉ 204.
+Trùng email local trả AUTH_GOOGLE_LINK_REQUIRED (409), không tự link. Invalid protocol AUTH_GOOGLE_INVALID (400).
+Reauthentication yêu cầu signed auth_time không cũ hơn lúc bắt đầu quá 30s, còn recent <300s
+(theo EmailOtp.RecentAuthenticationSeconds), không vượt clock 30s; lưu thời điểm primary thực tế.
 Logout không chấp nhận `sessionId/userId` từ body để revoke tài khoản khác; chỉ dùng digest của cookie.
 Session delete và logout-all require access JWT; logout hiện tại vẫn làm được khi access hết hạn.
 

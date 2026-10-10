@@ -4,6 +4,7 @@ public sealed class AuthSession : VersionedEntity
 {
     public Guid UserId { get; set; }
     public long AuthVersion { get; set; }
+    public AuthenticationMethod PrimaryMethod { get; set; } = AuthenticationMethod.Password;
     public DateTimeOffset AuthenticatedAt { get; set; }
     public DateTimeOffset? MfaVerifiedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }

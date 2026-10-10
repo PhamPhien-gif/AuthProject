@@ -20,6 +20,22 @@ public sealed class MfaStore(IDbContextFactory<AuthDbContext> factory, IOptions<
     IAccessTokenIssuer tokens, IPasswordHashService passwords, TimeProvider clock)
 {
     private EmailOtpOptions Limits => options.Value;
+    internal async Task<MfaChallengeGrant> StageGoogleAsync(AuthDbContext db, User user, DateTimeOffset primaryAt,
+        PasswordActor? actor, string trace, CancellationToken ct)
+    {
+        if (!Limits.Enabled) throw new AppException("AUTH_STEP_UP_REQUIRED");
+        var now = clock.GetUtcNow();
+        await CheckSendBudget(db, user.Id, now, ct);
+        var purpose = actor is null ? ChallengePurpose.LoginMfa : ChallengePurpose.StepUp;
+        await db.Challenges.Where(c => c.UserId == user.Id && c.Purpose == purpose && c.ConsumedAt == null)
+            .ExecuteUpdateAsync(s => s.SetProperty(c => c.ConsumedAt, now), ct);
+        var challenge = new AuthChallenge { UserId = user.Id, AuthVersion = user.AuthVersion, Purpose = purpose,
+            PrimaryMethod = AuthenticationMethod.Google, ContextId = Guid.NewGuid(), KeyId = Limits.KeyId,
+            CreatedAt = primaryAt, ExpiresAt = new[] { now.AddSeconds(Limits.ExpirySeconds), primaryAt.AddSeconds(Limits.ChallengeLifetimeSeconds) }.Min(),
+            SendCount = 1, NextSendAt = now.AddSeconds(Limits.ResendCooldownSeconds) };
+        db.Challenges.Add(challenge); StageEmail(db, user, challenge, trace, now);
+        return Grant(challenge, actor?.SessionId);
+    }
     public async Task<MfaChallengeGrant?> BeginAsync(Guid userId, ChallengePurpose purpose, PasswordActor? actor,
         PasswordAcceptance? accepted, string? password, string trace, CancellationToken ct)
     {
@@ -136,6 +152,7 @@ public sealed class MfaStore(IDbContextFactory<AuthDbContext> factory, IOptions<
         {
             var session = await ActorSession(db, user, actor!, now, ct);
             session.AuthenticatedAt = challenge.CreatedAt;
+            session.PrimaryMethod = challenge.PrimaryMethod;
             session.MfaVerifiedAt = now;
             Audit(db, AuditEventType.Reauthenticated, user.Id, trace, sessionId: session.Id);
             result = new();
@@ -214,16 +231,16 @@ public sealed class MfaStore(IDbContextFactory<AuthDbContext> factory, IOptions<
     }
     private async Task<SessionGrant> CompleteLogin(AuthDbContext db, User user, AuthChallenge challenge, string trace, DateTimeOffset now, CancellationToken ct)
     {
-        var session = new AuthSession { UserId = user.Id, AuthVersion = user.AuthVersion, AuthenticatedAt = challenge.CreatedAt,
+        var session = new AuthSession { UserId = user.Id, AuthVersion = user.AuthVersion, AuthenticatedAt = challenge.CreatedAt, PrimaryMethod = challenge.PrimaryMethod,
             MfaVerifiedAt = now, CreatedAt = now, LastSeenAt = now, IdleExpiresAt = now.AddSeconds(jwt.Value.SessionIdleLifetimeSeconds),
             AbsoluteExpiresAt = now.AddSeconds(jwt.Value.SessionAbsoluteLifetimeSeconds) };
         var refresh = RefreshTokenSecret.Create();
         db.Sessions.Add(session);
         db.RefreshTokens.Add(new RefreshToken { SessionId = session.Id, TokenHash = RefreshTokenSecret.Digest(refresh)!,
             CreatedAt = now, ExpiresAt = session.IdleExpiresAt });
-        db.LoginHistories.Add(new LoginHistory { UserId = user.Id, SessionId = session.Id, Method = AuthenticationMethod.Password,
+        db.LoginHistories.Add(new LoginHistory { UserId = user.Id, SessionId = session.Id, Method = challenge.PrimaryMethod,
             Outcome = AuditOutcome.Success, OccurredAt = now, TraceId = trace });
-        Audit(db, AuditEventType.LoginCompleted, user.Id, trace, sessionId: session.Id, method: AuthenticationMethod.Password);
+        Audit(db, AuditEventType.LoginCompleted, user.Id, trace, sessionId: session.Id, method: challenge.PrimaryMethod);
         var roles = await (from ur in db.UserRoles join role in db.Roles on ur.RoleId equals role.Id
             where ur.UserId == user.Id orderby role.Name select role.Name).ToArrayAsync(ct);
         var token = tokens.Issue(session); // Failure rolls back OTP/recovery consumption and session creation.

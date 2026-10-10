@@ -24,6 +24,7 @@ builder.Services.AddLogin(builder.Configuration);
 builder.Services.AddRefreshSessions(builder.Configuration);
 builder.Services.AddPasswordRecovery(builder.Configuration);
 builder.Services.AddEmailMfa();
+builder.Services.AddGoogleLogin();
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>

@@ -38,6 +38,15 @@
           "Microsoft.IdentityModel.Protocols.OpenIdConnect": "8.19.2"
         }
       },
+      "Microsoft.AspNetCore.Authentication.OpenIdConnect": {
+        "type": "Direct",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "UfkKr9EP+LBgnFfxwkfnZzta7XkalCroZWoxg2yW9dt8iPXO7bJYpcmyFIeM+FLcAlOKZeduP93XhuCcfWaYIQ==",
+        "dependencies": {
+          "Microsoft.IdentityModel.Protocols.OpenIdConnect": "8.19.2"
+        }
+      },
       "Microsoft.EntityFrameworkCore.Design": {
         "type": "Direct",
         "requested": "[10.0.12, )",

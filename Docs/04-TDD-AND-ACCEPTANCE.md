@@ -1,6 +1,6 @@
 ﻿# TDD, xUnit và kiểm soát chất lượng
 
-Tài liệu này là kế hoạch kiểm thử. **P09 đã có test các flow P05–P08 và MFA Email OTP/enrollment/step-up/recovery**; Google/RBAC quản trị còn chờ bước tương ứng;
+Tài liệu này là kế hoạch kiểm thử. **P10 đã có test các flow P05–P09 và Google/OIDC**; RBAC quản trị còn chờ P11;
 không dùng kết quả test nền tảng để báo hệ thống Auth đã hoàn tất.
 Xem [bằng chứng P01](06-P01-RESULTS.md) và [lệnh chạy local](05-LOCAL-DEVELOPMENT.md#6-chạy-test-p01).
 P02: [bằng chứng Red/Green và giới hạn](07-P02-RESULTS.md).
@@ -20,6 +20,11 @@ HTTP kiểm tra cookie/CSRF/CORS, access expiry/revocation và session quota sau
 Test cookie qua HTTP không thay thế smoke test policy cookie/TLS trong browser thực tế.
 P08: [kết quả password lifecycle, rollback và concurrency](13-P08-RESULTS.md).
 P09: [kết quả MFA, TDD thực tế và giới hạn](14-P09-RESULTS.md), 132 unit + 130 HTTP/startup + 173 SQL = 435 pass, 0 failed/skipped.
+P10: [kết quả Google/OIDC và TDD](15-P10-RESULTS.md). Unit validated identity và SQL completion
+được viết trước implementation; HTTP protocol/concurrency/startup tests bổ sung sau. Các lỗi
+raw provider error logging và reauthentication callback chậm có Red → Green ghi TRX riêng;
+password reauthentication sau Google cũng được mở rộng test Red → Green để cập nhật primary method.
+Fake backchannel kiểm tra middleware thật + PKCE và signed ID token, không gọi Google/network thật.
 Reset token purpose/version/expiry/replay, concurrent reset/forgot và reset-vs-refresh kiểm tra trên SQL thật;
 HTTP chứng minh access/refresh cũ bị chặn, current-password/recent-auth/CSRF enforcement và giữ MFA sau reset.
 

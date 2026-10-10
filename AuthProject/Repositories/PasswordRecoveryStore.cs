@@ -93,6 +93,7 @@ public sealed class PasswordRecoveryStore(IDbContextFactory<AuthDbContext> facto
         {
             // A password proof never renews MFA proof, idle expiry, absolute expiry, or AuthVersion.
             session.AuthenticatedAt = now;
+            session.PrimaryMethod = AuthenticationMethod.Password;
             new AuditWriter(db, audits, clock).Stage(new(AuditEventType.Reauthenticated, AuditOutcome.Success, AuditReason.None,
                 trace, user.Id, user.Id, new(SessionId: session.Id, Method: AuthenticationMethod.Password)));
         }

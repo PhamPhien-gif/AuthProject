@@ -80,6 +80,8 @@ public sealed class SessionConfiguration : IEntityTypeConfiguration<AuthSession>
     public void Configure(EntityTypeBuilder<AuthSession> b)
     {
         Mapping.Entity(b, "AuthSessions");
+        b.Property(x => x.PrimaryMethod).HasConversion<string>().HasMaxLength(16).IsUnicode(false).HasDefaultValue(AuthenticationMethod.Password);
+        b.ToTable(t => t.HasCheckConstraint("CK_AuthSessions_PrimaryMethod", "[PrimaryMethod] IN ('Password', 'Google')"));
         Mapping.UserForeignKey(b);
         b.Property(x => x.RevokeReason).HasMaxLength(64).IsUnicode(false);
         b.Property(x => x.ClientInfo).HasMaxLength(256);
@@ -115,6 +117,8 @@ public sealed class ChallengeConfiguration : IEntityTypeConfiguration<AuthChalle
     public void Configure(EntityTypeBuilder<AuthChallenge> b)
     {
         Mapping.Entity(b, "AuthChallenges");
+        b.Property(x => x.PrimaryMethod).HasConversion<string>().HasMaxLength(16).IsUnicode(false).HasDefaultValue(AuthenticationMethod.Password);
+        b.ToTable(t => t.HasCheckConstraint("CK_AuthChallenges_PrimaryMethod", "[PrimaryMethod] IN ('Password', 'Google')"));
         Mapping.UserForeignKey(b);
         Mapping.Digest(b.Property(x => x.SecretDigest));
         b.Property(x => x.KeyId).HasMaxLength(64).IsUnicode(false);

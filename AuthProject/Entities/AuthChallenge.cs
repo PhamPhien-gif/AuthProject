@@ -4,6 +4,7 @@ public sealed class AuthChallenge : VersionedEntity
 {
     public Guid UserId { get; set; }
     public ChallengePurpose Purpose { get; set; }
+    public AuthenticationMethod PrimaryMethod { get; set; } = AuthenticationMethod.Password;
     public string SecretDigest { get; set; } = string.Empty;
     public string? KeyId { get; set; }
     public Guid ContextId { get; set; }

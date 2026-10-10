@@ -190,10 +190,13 @@ public sealed class PasswordRecoveryTests(SqlServerFixture fixture) : IClassFixt
     public async Task RecentAuthExpired_ReauthenticateRenewsPrimaryOnlyThenChangeRevokes()
     {
         var (user, session) = await Seed(); var actor = new PasswordActor(user.Id, session.Id, user.AuthVersion); var accepted = new AuthProject.Security.Interfaces.PasswordAcceptance(user.Id, user.AuthVersion, false);
+        await using (var setup = DbFactory.CreateDbContext())
+            await setup.Sessions.Where(s => s.Id == session.Id).ExecuteUpdateAsync(s => s.SetProperty(s => s.PrimaryMethod, AuthenticationMethod.Google));
         clock.Advance(TimeSpan.FromMinutes(5));
         Assert.Equal(PasswordMutationResult.StepUpRequired, await Store().ChangeAsync(actor, accepted, NewPassword, "too_old", default));
         Assert.Equal(PasswordMutationResult.Success, await Store().ReauthenticateAsync(actor, accepted, "reauth", default));
         await using var db = DbFactory.CreateDbContext(); var fresh = await db.Sessions.SingleAsync(s => s.Id == session.Id);
+        Assert.Equal(AuthenticationMethod.Password, fresh.PrimaryMethod);
         Assert.Equal(clock.GetUtcNow(), fresh.AuthenticatedAt); Assert.Null(fresh.MfaVerifiedAt); Assert.Equal(session.AbsoluteExpiresAt, fresh.AbsoluteExpiresAt);
         Assert.Equal(PasswordMutationResult.Success, await Store().ChangeAsync(actor, accepted, NewPassword, "change", default));
         Assert.NotNull((await db.Sessions.AsNoTracking().SingleAsync(s => s.Id == session.Id)).RevokedAt);

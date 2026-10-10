@@ -110,6 +110,14 @@ namespace AuthProject.Data.Migrations
                     b.Property<DateTimeOffset?>("NextSendAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("PrimaryMethod")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)")
+                        .HasDefaultValue("Password");
+
                     b.Property<string>("Purpose")
                         .IsRequired()
                         .HasMaxLength(32)
@@ -152,6 +160,8 @@ namespace AuthProject.Data.Migrations
                             t.HasCheckConstraint("CK_AuthChallenges_Digest", "[SecretDigest] NOT LIKE '%[^0-9A-F]%' AND LEN([SecretDigest]) = 64");
 
                             t.HasCheckConstraint("CK_AuthChallenges_Expiry", "[ExpiresAt] > [CreatedAt]");
+
+                            t.HasCheckConstraint("CK_AuthChallenges_PrimaryMethod", "[PrimaryMethod] IN ('Password', 'Google')");
                         });
                 });
 
@@ -185,6 +195,14 @@ namespace AuthProject.Data.Migrations
                     b.Property<DateTimeOffset?>("MfaVerifiedAt")
                         .HasColumnType("datetimeoffset");
 
+                    b.Property<string>("PrimaryMethod")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(16)")
+                        .HasDefaultValue("Password");
+
                     b.Property<string>("RevokeReason")
                         .HasMaxLength(64)
                         .IsUnicode(false)
@@ -211,6 +229,8 @@ namespace AuthProject.Data.Migrations
                     b.ToTable("AuthSessions", null, t =>
                         {
                             t.HasCheckConstraint("CK_AuthSessions_Lifetime", "[AuthVersion] >= 1 AND [AbsoluteExpiresAt] > [CreatedAt] AND [IdleExpiresAt] <= [AbsoluteExpiresAt] AND [IdleExpiresAt] > [CreatedAt]");
+
+                            t.HasCheckConstraint("CK_AuthSessions_PrimaryMethod", "[PrimaryMethod] IN ('Password', 'Google')");
                         });
                 });
 

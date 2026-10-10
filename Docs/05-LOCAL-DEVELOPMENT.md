@@ -1,6 +1,6 @@
 ﻿# Chạy local và cấu hình
 
-## 1. Trạng thái hiện tại: P09
+## 1. Trạng thái hiện tại: P10
 
 `global.json` chọn SDK **10.0.401** + latestPatch, mọi project target `net10.0` qua
 `Directory.Build.props`. IDE phải hỗ trợ SDK này; CLI là cách build đã được kiểm chứng.
@@ -9,7 +9,7 @@ API có Swagger, DTO/FluentValidation, ProblemDetails, exception handler, option
 đã có entities, DbContext/migration, repositories, password hasher, audit/outbox và log4net adapter;
 đã có endpoint Register/Verify/Resend và SMTP email worker. Registration, persistence và file sink mặc định tắt.
 Rate limiting mặc định bật; đã có SQL lockout, credential gate và trusted proxy options.
-Swagger có Register/Login/GetMe, refresh/logout/session, password recovery và MFA Email OTP; Google chờ P10.
+Swagger có Register/Login/GetMe, refresh/logout/session, password recovery, MFA Email OTP và Google/OIDC.
 JWT mặc định tắt cho đến khi đủ persistence, issuer/audience/RSA private key.
 Không cần kết nối SQL/SMTP/Google để build hoặc mở Swagger; SQL chỉ cần cho nhóm test SQL.
 
@@ -602,7 +602,101 @@ Password reset không tắt MFA hoặc cấp factor proof. Password reauthentica
 
 Một browser có một cookie MFA operation, nên flow mới thay binding của flow cũ. Swagger cần allowed origin đúng địa chỉ HTTPS của API, CSRF header và browser cookie; Authorize bearer chỉ cho enrollment/step-up/management.
 Email OTP không chống phishing, phụ thuộc mailbox và không được quảng bá là NIST AAL2.
-Google/OIDC chờ P10; provider login phải qua local MFA trước khi cấp phiên. Audit SQL/outbox đã ghi sự kiện MFA; delivery log4net worker chờ P12.
+P10 đã nối Google/OIDC; provider login vẫn qua local MFA trước khi cấp phiên. Audit SQL/outbox đã ghi sự kiện MFA; delivery log4net worker chờ P12.
 
 Kiểm chứng: **132 unit + 130 HTTP/startup + 173 SQL = 435 passed**, 0 failed/skipped; build 0 warning/error. Reports ignored tại TestResults/P09; [báo cáo P09](14-P09-RESULTS.md).
 SQL dùng database cô lập, email transport giả; SMTP thật cần kiểm tra với cấu hình của bạn.
+
+## 16. Bật Google OAuth/OIDC P10
+
+### Migration và cấu hình
+
+P10 thêm PrimaryMethod vào AuthSessions/AuthChallenges, default Password cho dữ liệu cũ.
+**Áp dụng migration trước khi chạy API phiên bản này, kể cả Google đang tắt.** Startup không tự migrate.
+Chạy từ thư mục chứa AuthProject.sln; EF CLI đọc connection string trong .env như các bước trước:
+
+```powershell
+dotnet tool restore
+dotnet ef database update --project AuthProject --startup-project AuthProject
+```
+
+Migration mới: `20261010114841_AddPrimaryAuthenticationMethod`.
+Script review [003-P10-GooglePrimary.sql](Sql/003-P10-GooglePrimary.sql) là delta idempotent
+cho database đã có schema P03/P04; dùng EF database update nếu chưa cập nhật schema từ trước.
+Phiên triển khai chỉ chạy migration trên SQL test cô lập, chưa update database AuthProject của bạn.
+
+Giữ cấu hình JWT/RSA/Refresh/Persistence mục 12–13. Bổ sung vào .env của bạn:
+
+```dotenv
+Persistence__Enabled=true
+Auth__Jwt__Enabled=true
+Auth__Refresh__Enabled=true
+Auth__Refresh__AllowedOrigins__0='https://localhost:7148'
+Auth__Refresh__AllowedOrigins__1='https://localhost:5173'
+Auth__Google__Enabled=true
+Auth__Google__ClientId='<client-id-do-ban-tao>'
+Auth__Google__ClientSecret='<client-secret-do-ban-tao>'
+Auth__Google__CallbackPath='/signin-google'
+Auth__Google__CallbackUri='https://localhost:7148/signin-google'
+Auth__Google__CompletionUrl='https://localhost:5173/auth/google-complete'
+Auth__Google__ErrorUrl='https://localhost:5173/auth/google-error'
+```
+
+Các placeholder credentials phải thay bằng cấu hình riêng, không commit. Nếu .env đã có key,
+sửa key đó thay vì thêm duplicate. Completion/Error là trang frontend bạn kiểm soát; backend chưa có UI.
+Origins cần HTTPS, exact host/port, không trailing slash/path/wildcard. Client phải cùng site với API
+để cookies SameSite=Strict hoạt động (localhost khác port phù hợp); khác site cần thiết kế BFF/proxy riêng.
+Callback/completion/error URL không được chứa query/fragment/userinfo. URL callback không dựng từ Host header.
+Google không cần bật Registration/SMTP nếu user không có local MFA; user đã bật MFA cần EmailOtp/Email/SMTP đầy đủ.
+
+Trong Google Cloud Console, tạo OAuth client **Web application**, thiết lập consent screen/test users
+theo môi trường của bạn, đăng ký Authorized redirect URI chính xác `https://localhost:7148/signin-google`.
+Không đăng ký CompletionUrl làm provider callback. Backend chỉ xin openid/email/profile,
+không offline access và không lưu provider access/refresh token.
+[Google hướng dẫn cấu hình OIDC](https://developers.google.com/identity/openid-connect/openid-connect).
+
+### Đăng nhập và completion page
+
+1. Điều hướng browser tới `https://localhost:7148/api/v1/auth/google/start`; không gọi bằng fetch để theo redirect Google.
+2. Middleware đặt state/nonce/correlation/PKCE và GoogleFlow HttpOnly/Secure/Lax cookie. Callback GET `/signin-google`
+   kiểm tra ID token, tạo completion challenge, redirect fixed CompletionUrl với `#ticket=...` và cookie completion Strict.
+3. Frontend đọc fragment vào memory rồi xóa bằng history.replaceState; không lưu/log ticket. GET `/api/v1/auth/csrf`
+   với credentials: include, lấy token. POST `/api/v1/auth/google/complete` JSON `{"ticket":"..."}`,
+   credentials: include + X-CSRF-TOKEN. Không gửi bearer phiên cũ trong flow login.
+4. 200 AuthResult có JWT, refresh nằm cookie HttpOnly; 202 MfaChallengeResponse chỉ có challenge/cookie, chưa JWT/refresh.
+   Với 202, tiếp tục verify OTP/recovery theo mục 15. Google login không bỏ qua local MFA.
+5. Ticket chỉ một lần, deadline 60 giây tính từ callback; sai browser/expired/replay/version/revoked identity bị từ chối.
+   Provider error về ErrorUrl với `#error=<public-code>&traceId=...`; không raw error_description/provider tokens.
+
+Email local trùng: AUTH_GOOGLE_LINK_REQUIRED, không tự merge. User mới có role User, active/verified,
+PasswordHash=null. Identity ổn định là Google+sub; email provider đổi không chuyển chủ tài khoản local.
+Một browser chỉ có một flow Google đang hoạt động, flow mới thay binding trước đó.
+
+### Link/unlink và recent authentication
+
+POST `/api/v1/auth/google/link` với JWT + CSRF, không body, cần primary/factor SQL còn recent <300s.
+API trả 200 `{"authorizationUrl":"https://accounts.google.com/..."}`; frontend điều hướng browser tới URL đó.
+Sau callback, POST complete như trên **kèm bearer của cùng actor/session** → 204.
+Link mới tăng AuthVersion, revoke mọi session/refresh/challenge; đăng nhập lại. Subject đã thuộc user khác
+không thể chuyển chủ; cùng user chỉ có một identity Google. Link cùng subject đã gắn là no-op.
+
+DELETE `/api/v1/auth/google/link` với JWT + recent primary/factor + CSRF → 204 và revoke toàn bộ phiên.
+Google-only không thể unlink phương thức đăng nhập cuối cùng: AUTH_LAST_LOGIN_METHOD.
+Forgot/reset không tạo password cho Google-only; thiết lập password là flow riêng chưa nằm trong baseline.
+
+POST `/api/v1/auth/google/reauthenticate` với JWT + CSRF, không body → 200 authorizationUrl.
+Browser điều hướng; provider yêu cầu max_age=0. Completion với bearer cùng session:
+204 renew primary nếu không MFA; 202 local StepUp nếu MFA, sau đó verify/recovery với bearer cùng session → 204.
+Signed auth_time phải phù hợp flow start, còn recent và không vượt clock allowance; thiếu/stale bị từ chối.
+Không thay primary proof bằng thời điểm callback đến. Refresh không renew proof; nếu JWT hết hạn khi
+đang thao tác, refresh tuần tự để lấy JWT mới của cùng session trước complete.
+
+### Kiểm chứng
+
+Test dùng fake Google discovery/JWKS/token endpoint, PKCE và ID token ký RSA qua middleware thật;
+SQL Express dùng AuthProject_Test_GUID, không DefaultConnection. SMTP fake, không gửi email thật.
+Chưa chạy consent/cookie/Google reauthentication trên browser thật với credentials của bạn;
+đặc biệt cần kiểm tra provider có trả signed auth_time khi max_age=0. Thiếu claim sẽ fail closed.
+[Kết quả P10 và lệnh test](15-P10-RESULTS.md). P11–P13 tiếp tục chờ lệnh.
+Regression Release P10: **140 unit + 141 HTTP/startup + 208 SQL = 489 passed**, 0 failed/skipped;
+build 0 warning/error và restore --locked-mode pass.

@@ -28,6 +28,8 @@ public sealed class OptionsStartupTests
                 ["Auth:Email:Password"] = "test-only-credential",
                 ["Auth:Google:Enabled"] = "true", ["Auth:Google:ClientId"] = "test-client",
                 ["Auth:Google:ClientSecret"] = "test-only-credential",
+                ["Auth:Google:CallbackUri"] = "https://localhost/signin-google",
+                ["Auth:Google:CompletionUrl"] = "https://localhost/google-complete", ["Auth:Google:ErrorUrl"] = "https://localhost/google-error",
                 ["Auth:EmailOtp:Enabled"] = "true", ["Auth:EmailOtp:KeyId"] = "test-pepper",
                 ["Auth:EmailOtp:Pepper"] = Convert.ToBase64String(new byte[32])
             }));

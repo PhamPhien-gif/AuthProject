@@ -394,6 +394,7 @@
           "FluentValidation.DependencyInjectionExtensions": "[12.1.1, )",
           "MailKit": "[4.17.0, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.12, )",
+          "Microsoft.AspNetCore.Authentication.OpenIdConnect": "[10.0.12, )",
           "Microsoft.EntityFrameworkCore.SqlServer": "[10.0.12, )",
           "Swashbuckle.AspNetCore": "[10.3.0, )",
           "System.IdentityModel.Tokens.Jwt": "[8.23.0, )",
@@ -433,6 +434,15 @@
         "requested": "[10.0.12, )",
         "resolved": "10.0.12",
         "contentHash": "DeE+Bq2OqB3FikFkZk+7gFBeLOQhkSolejLrbi+a9zpfvXtW1Ff6Nd6DIvHXIm+pc4aM4+52vDy3jnuau0qoUQ==",
+        "dependencies": {
+          "Microsoft.IdentityModel.Protocols.OpenIdConnect": "8.19.2"
+        }
+      },
+      "Microsoft.AspNetCore.Authentication.OpenIdConnect": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.12, )",
+        "resolved": "10.0.12",
+        "contentHash": "UfkKr9EP+LBgnFfxwkfnZzta7XkalCroZWoxg2yW9dt8iPXO7bJYpcmyFIeM+FLcAlOKZeduP93XhuCcfWaYIQ==",
         "dependencies": {
           "Microsoft.IdentityModel.Protocols.OpenIdConnect": "8.19.2"
         }

@@ -1,6 +1,6 @@
 ﻿# Kế hoạch triển khai Auth
 
-Ngày lập: 09/10/2026. Cập nhật P09: 10/10/2026. Trạng thái: **P00–P09 đã triển khai, P10–P13 chờ lệnh**.
+Ngày lập: 09/10/2026. Cập nhật P10: 10/10/2026. Trạng thái: **P00–P10 đã triển khai, P11–P13 chờ lệnh**.
 Kết quả và giới hạn kiểm chứng P01: [báo cáo P01](06-P01-RESULTS.md).
 Kết quả và cách mở rộng P02: [báo cáo P02](07-P02-RESULTS.md).
 Kết quả persistence, hashing và audit: [báo cáo P03](08-P03-RESULTS.md).
@@ -10,6 +10,7 @@ Kết quả Login/JWT/GetMe và session validation: [báo cáo P06](11-P06-RESUL
 Kết quả rotation/reuse/logout/session/CSRF: [báo cáo P07](12-P07-RESULTS.md).
 Kết quả password recovery/change/reauthenticate: [báo cáo P08](13-P08-RESULTS.md).
 Kết quả MFA Email OTP/enrollment/step-up/recovery: [báo cáo P09](14-P09-RESULTS.md).
+Kết quả Google/OIDC, link/unlink và reauthentication: [báo cáo P10](15-P10-RESULTS.md).
 Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant hoặc microservice.
 
 ## 1. Nguyên tắc điều khiển phạm vi
@@ -35,7 +36,7 @@ Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant h
 | P07 | Auth cơ bản | Rotation, reuse detection, logout/revoke | P06 | Hoàn tất — 321 test pass toàn solution |
 | P08 | Vòng đời tài khoản | Forgot/Reset/Change password | P07 | Hoàn tất — 369 test pass toàn solution |
 | P09 | MFA | Email OTP, enrollment, disable, recovery | P08 | Hoàn tất — 435 test pass toàn solution |
-| P10 | Social login | Google OAuth 2.0/OIDC, linking | P09 | Chờ lệnh |
+| P10 | Social login | Google OAuth 2.0/OIDC, linking | P09 | Hoàn tất — 489 test pass toàn solution |
 | P11 | Authorization | RBAC, policy, quản trị user/role | P10 | Chờ lệnh |
 | P12 | Quan sát | Login History, AuditLog API, log4net delivery | P11 | Chờ lệnh |
 | P13 | Phát hành | E2E, security regression, Swagger, vận hành | P12 | Chờ lệnh |
@@ -54,7 +55,7 @@ Ghi audit bắt đầu ở P03 và được nối vào từng flow ngay khi flow
 - [x] Bỏ WeatherForecast và test rỗng từ template.
 - [x] Thêm `.gitignore`, `.editorconfig`, `.env.example`, pin SDK 8 hiện có.
 - [x] Viết Docs cho kiến trúc, API, TDD, local và roadmap.
-- [x] P01–P09 đã triển khai theo lệnh riêng; P10–P13 chưa thực hiện.
+- [x] P01–P10 đã triển khai theo lệnh riêng; P11–P13 chưa thực hiện.
 
 Nghiệm thu: restore/build được; runner xUnit chạy được nhưng chưa có test; ignore giữ lại
 source, Docs và file example, loại bỏ output/secrets. Kết quả thực tế xem [local](05-LOCAL-DEVELOPMENT.md).
@@ -249,7 +250,7 @@ revoke sessions/refresh/challenges; codes chỉ hash và hiển thị một lầ
 MfaEmail worker lease/retry/discard stale OTP; DTO/CSRF/rate/error/Swagger giữ thống nhất.
 Không migration mới hoặc sửa `.env`/DB ứng dụng. Cấu hình và thao tác ở local mục 15.
 Release: **132 unit + 130 HTTP/startup + 173 SQL = 435 passed**, 0 failed/skipped, build 0 warning/error.
-[Bằng chứng TDD thực tế, kết quả và giới hạn P09](14-P09-RESULTS.md). P10–P13 vẫn chờ lệnh.
+[Bằng chứng TDD thực tế, kết quả và giới hạn P09](14-P09-RESULTS.md). Google/MFA đã nối ở P10 bên dưới.
 
 ### P10 — Đăng nhập/đăng ký Google
 
@@ -265,6 +266,15 @@ Release: **132 unit + 130 HTTP/startup + 173 SQL = 435 passed**, 0 failed/skippe
 Red: invalid state/nonce/code replay; canceled consent; provider unavailable; fake email/subject;
 account-link takeover; open redirect; callback replay; bypass local MFA.
 Nghiệm thu: tự động test bằng fake provider; smoke Google thật là kiểm tra thủ công có credentials riêng.
+
+Kết quả P10: middleware OIDC code/PKCE/state/nonce, fixed HTTPS callback/client URLs;
+Google+sub, verified User account không password, không auto-merge email. Completion ticket
+60 giây một lần + protected browser binding + CSRF; chỉ POST mới cấp JWT/refresh, local MFA vẫn bắt buộc.
+Link/unlink cần recent primary/factor, version++/revoke/audit; Google reauthentication dùng max_age=0
+và auth_time còn recent, không tạo proof mới từ callback chậm. JWT amr=federated, thêm mfa khi hoàn tất factor.
+Migration AddPrimaryAuthenticationMethod và script 003 cần áp dụng trước startup bản mới.
+Không sửa .env, update DB ứng dụng hoặc gọi Google/SMTP thật. [Kết quả và TDD P10](15-P10-RESULTS.md).
+Release: **140 unit + 141 HTTP/startup + 208 SQL = 489 passed**, 0 failed/skipped; build 0 warning/error.
 
 ### P11 — RBAC và quản trị
 

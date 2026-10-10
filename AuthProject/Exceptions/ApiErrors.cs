@@ -14,6 +14,8 @@ public static class ApiErrors
     private static readonly ApiError[] Definitions =
     [
         InvalidRequest, ValidationFailed, Internal,
+        new("AUTH_GOOGLE_INVALID", 400, "Không thể xác minh đăng nhập Google."),
+        new("AUTH_GOOGLE_LINK_REQUIRED", 409, "Hãy đăng nhập tài khoản hiện có để liên kết Google."),
         new("AUTH_CHALLENGE_INVALID", 400, "Challenge không hợp lệ."),
         new("AUTH_INVALID_CREDENTIALS", 401, "Thông tin đăng nhập không hợp lệ."),
         new("AUTH_UNAUTHENTICATED", 401, "Yêu cầu xác thực."),

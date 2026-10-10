@@ -13,6 +13,7 @@ public sealed class EmailOtpSecret(IOptions<EmailOtpOptions> options)
     public string Digest(AuthChallenge challenge, string code)
     {
         var value = FormattableString.Invariant($"AuthProject.EmailOtp.v1|{challenge.Id:N}|{challenge.UserId:N}|{challenge.ContextId:N}|{(int)challenge.Purpose}|{challenge.Version}|{challenge.AuthVersion}|{challenge.KeyId}|{code}");
+        if (challenge.PrimaryMethod == AuthenticationMethod.Google) value += "|Google";
         return Convert.ToHexString(HMACSHA256.HashData(Convert.FromBase64String(options.Value.Pepper), Encoding.UTF8.GetBytes(value)));
     }
     public bool Matches(AuthChallenge challenge, string? code, string digest)

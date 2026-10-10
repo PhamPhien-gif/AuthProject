@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" />
     <PackageReference Include="MailKit" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" />

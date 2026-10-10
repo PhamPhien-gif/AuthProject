@@ -1,6 +1,6 @@
 # Kiến trúc và thiết kế bảo mật
 
-**Thiết kế toàn hệ thống; P00–P09 đã triển khai, gồm password recovery và MFA Email OTP; các flow còn lại chờ lệnh.** Các giá trị timeout/quota là baseline
+**Thiết kế toàn hệ thống; P00–P10 đã triển khai, gồm password recovery, MFA Email OTP và Google/OIDC; quản trị RBAC và delivery audit chờ bước tiếp theo.** Các giá trị timeout/quota là baseline
 để test, sẽ điều chỉnh bằng đo đạc ở P13. Xem thứ tự triển khai ở [roadmap](01-IMPLEMENTATION-PLAN.md).
 
 ## 1. Layered Architecture
@@ -269,7 +269,7 @@ out-of-band authentication. Có thể mở rộng TOTP/WebAuthn sau bằng inter
 P09 enable/disable/regenerate tăng AuthVersion và revoke mọi session/refresh/challenge cùng transaction.
 Step-up endpoint riêng xác minh password rồi factor, completion mới cập nhật AuthenticatedAt/MfaVerifiedAt;
 resend không renew primary proof. JWT amr có pwd + mfa khi session đã có factor; refresh giữ bằng chứng SQL.
-Pepper hiện chỉ có một key ID active, đổi key sẽ invalid pending OTP. Google primary/factor completion nối ở P10.
+Pepper hiện chỉ có một key ID active, đổi key sẽ invalid pending OTP. P10 đã nối Google primary/factor completion.
 
 ## 8. Google OAuth 2.0 / OpenID Connect
 
@@ -282,8 +282,37 @@ Callback tìm ExternalLogin; nếu chưa có thì tạo User hoặc yêu cầu l
 Link bind current authenticated user + recent auth + OAuth state có purpose Link; không ghi đè identity
 đã thuộc user khác. Login/link callback không phát token qua redirect query/fragment.
 Completion ticket một lần ≤ 60 giây bind browser correlation; redeem bằng POST kiểm tra CSRF/origin,
-rồi cấp token hoặc challenge local MFA. Chỉ lưu safe return path đã allowlist từ lúc bắt đầu.
+rồi cấp token hoặc challenge local MFA. URL callback/completion/error cấu hình cố định,
+HTTPS, không query/fragment/userinfo; origin client phải trong Refresh.AllowedOrigins.
+Không sử dụng returnUrl từ caller hoặc Host header để dựng redirect.
 [Google OpenID Connect](https://developers.google.com/identity/openid-connect/openid-connect).
+
+P10 dùng Microsoft OpenIdConnect middleware, code + PKCE, scopes chỉ openid/email/profile,
+RS256 issuer/audience/lifetime validation, nonce/correlation; SaveTokens=false và chặn external
+cookie sign-in để provider principal không trở thành phiên API. JWT chỉ phát khi completion
+hoặc local MFA thành công; amr là federated, thêm mfa khi có factor SQL hợp lệ.
+AuthSession/AuthChallenge.PrimaryMethod có default Password và CHECK Password/Google;
+migration AddPrimaryAuthenticationMethod backfill session/challenge cũ, giữ HMAC OTP Password tương thích P09.
+Google OTP HMAC thêm method vào input để ràng buộc primary method.
+
+GoogleFlow cookie DP HttpOnly/Secure/Lax path / dùng cho callback GET; GoogleCompletion
+DP HttpOnly/Secure/Strict path /api/v1/auth cho POST sau redirect. Ticket 32 random bytes,
+chỉ SHA256 digest trong SQL; challenge bind context/user/purpose/AuthVersion và consumed atomic.
+Một browser một flow; khởi tạo flow khác thay cookie binding cũ. Callback/account creation
+không cấp phiên; pending history tách success sau completion/factor. User lock serialize các mutation.
+Link/unlink yêu cầu recent primary và local MFA proof khi bật MFA; thay identity revoke toàn bộ phiên.
+Không xóa login method cuối cùng và không provision password cho Google-only qua recovery.
+
+POST link/reauthenticate trả authorizationUrl JSON sau middleware đã tạo protected state/PKCE;
+frontend điều hướng browser, không gửi JWT cho Google. Reauthentication yêu cầu max_age=0,
+signed auth_time còn recent và phù hợp thời điểm bắt đầu flow; callback về chậm không làm mới
+primary proof cũ. Nếu bật MFA, completion chỉ stage local StepUp; proof chỉ hoàn tất sau OTP/recovery.
+Provider thiếu auth_time trong reauthentication bị từ chối, không fallback sang callback timestamp.
+
+Log category Microsoft.AspNetCore.Authentication.OpenIdConnect bị tắt vì middleware có thể
+ghi raw error_description do provider trả. AuthProject.GoogleProtocol chỉ ghi public error code
+và server traceId, không exception/raw provider body. Audit nghiệp vụ vẫn ghi SQL/protected outbox;
+delivery log4net và retention thuộc P12. Test P10 đã tái hiện và chặn raw protocol error trong log.
 
 ## 9. Rate limiting và lockout
 

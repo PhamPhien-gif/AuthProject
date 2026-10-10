@@ -7,6 +7,15 @@ namespace UnitTestAuth.Security;
 public sealed class AccessTokenRulesTests
 {
     [Fact]
+    public void Federated_primary_is_valid_but_password_plus_federated_is_rejected()
+    {
+        var claims = new List<Claim> { new("sub", Guid.NewGuid().ToString()), new("sid", Guid.NewGuid().ToString()),
+            new("av", "1"), new("jti", Guid.NewGuid().ToString()), new("iat", "1791504000"), new("amr", "federated") };
+        Assert.True(AccessTokenRules.TryRead(new(new ClaimsIdentity(claims)), out _, out _, out _));
+        claims.Add(new("amr", "mfa")); Assert.True(AccessTokenRules.TryRead(new(new ClaimsIdentity(claims)), out _, out _, out _));
+        claims.Add(new("amr", "pwd")); Assert.False(AccessTokenRules.TryRead(new(new ClaimsIdentity(claims)), out _, out _, out _));
+    }
+    [Fact]
     public void Claims_accept_password_plus_MFA_but_reject_duplicate_or_untrusted_methods()
     {
         var claims = new List<Claim> { new("sub", Guid.NewGuid().ToString()), new("sid", Guid.NewGuid().ToString()),

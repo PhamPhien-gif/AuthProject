@@ -19,7 +19,8 @@ public sealed class JwtAccessTokenIssuer(JwtSigningKey key, IOptions<JwtOptions>
         {
             new("sub", session.UserId.ToString()), new("sid", session.Id.ToString()),
             new("av", session.AuthVersion.ToString(CultureInfo.InvariantCulture)), new("jti", Guid.NewGuid().ToString()),
-            new("iat", now.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64), new("amr", "pwd")
+            new("iat", now.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64),
+            new("amr", session.PrimaryMethod == AuthenticationMethod.Google ? "federated" : "pwd")
         };
         // Generic MFA evidence covers either email OTP or a one-use recovery code.
         if (session.MfaVerifiedAt is not null) claims.Add(new("amr", "mfa"));

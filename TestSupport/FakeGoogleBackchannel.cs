@@ -9,18 +9,20 @@ using Microsoft.IdentityModel.Tokens;
 
 namespace AuthProject.TestSupport;
 
+public enum GoogleTokenFault { None, WrongIssuer, WrongAudience, WrongSignature, Expired, MissingNonce, MissingSubject, StaleAuthentication, Unavailable }
+
 internal sealed class FakeGoogleBackchannel(TimeProvider clock) : HttpMessageHandler
 {
     public const string Issuer = "https://accounts.google.test";
     public const string ClientId = "authproject-test-client";
     private readonly RSA rsa = RSA.Create(2048);
     private readonly string keyId = Guid.NewGuid().ToString("N");
-    private readonly ConcurrentDictionary<string, (TestIdentity Identity, string Nonce, DateTimeOffset ExpiresAt)> codes = new();
+    private readonly ConcurrentDictionary<string, (TestIdentity Identity, string Nonce, DateTimeOffset ExpiresAt, string? Pkce, GoogleTokenFault Fault)> codes = new();
 
-    public string IssueCode(TestIdentity identity, string nonce)
+    public string IssueCode(TestIdentity identity, string nonce, string? pkce = null, GoogleTokenFault fault = GoogleTokenFault.None)
     {
         var code = Guid.NewGuid().ToString("N");
-        codes[code] = (identity, nonce, clock.GetUtcNow().AddMinutes(1));
+        codes[code] = (identity, nonce, clock.GetUtcNow().AddMinutes(1), pkce, fault);
         return code;
     }
 
@@ -61,17 +63,29 @@ internal sealed class FakeGoogleBackchannel(TimeProvider clock) : HttpMessageHan
             if (form["grant_type"] != "authorization_code" || form["client_id"] != ClientId
                 || !codes.TryRemove(form["code"].ToString(), out var grant) || grant.ExpiresAt <= clock.GetUtcNow())
                 return Json(HttpStatusCode.BadRequest, new { error = "invalid_grant" });
+            if (grant.Pkce is not null && Base64UrlEncoder.Encode(SHA256.HashData(System.Text.Encoding.ASCII.GetBytes(form["code_verifier"].ToString()))) != grant.Pkce)
+                return Json(HttpStatusCode.BadRequest, new { error = "invalid_grant" });
+            if (grant.Fault == GoogleTokenFault.Unavailable) throw new HttpRequestException("Fake provider unavailable.");
 
             var now = clock.GetUtcNow().UtcDateTime;
-            var token = new JwtSecurityToken(Issuer, ClientId,
-            [
+            var claims = new List<Claim>
+            {
                 new Claim("sub", grant.Identity.Subject),
                 new Claim("email", grant.Identity.Email),
                 new Claim("name", grant.Identity.DisplayName),
                 new Claim("email_verified", grant.Identity.EmailVerified ? "true" : "false", ClaimValueTypes.Boolean),
                 new Claim("nonce", grant.Nonce),
-                new Claim("iat", EpochTime.GetIntDate(now).ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
-            ], now, now.AddMinutes(5), new SigningCredentials(new RsaSecurityKey(rsa) { KeyId = keyId }, SecurityAlgorithms.RsaSha256));
+                new Claim("iat", EpochTime.GetIntDate(now).ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64),
+                new Claim("auth_time", EpochTime.GetIntDate(grant.Fault == GoogleTokenFault.StaleAuthentication ? now.AddHours(-1) : now).ToString(System.Globalization.CultureInfo.InvariantCulture), ClaimValueTypes.Integer64)
+            };
+            if (grant.Fault == GoogleTokenFault.MissingNonce) claims.RemoveAll(c => c.Type == "nonce");
+            if (grant.Fault == GoogleTokenFault.MissingSubject) claims.RemoveAll(c => c.Type == "sub");
+            using var other = RSA.Create(2048);
+            var token = new JwtSecurityToken(grant.Fault == GoogleTokenFault.WrongIssuer ? "https://attacker.test" : Issuer,
+                grant.Fault == GoogleTokenFault.WrongAudience ? "wrong-client" : ClientId, claims,
+                grant.Fault == GoogleTokenFault.Expired ? now.AddMinutes(-10) : now,
+                grant.Fault == GoogleTokenFault.Expired ? now.AddMinutes(-5) : now.AddMinutes(5),
+                new SigningCredentials(new RsaSecurityKey(grant.Fault == GoogleTokenFault.WrongSignature ? other : rsa) { KeyId = keyId }, SecurityAlgorithms.RsaSha256));
 
             return Json(HttpStatusCode.OK, new
             {
