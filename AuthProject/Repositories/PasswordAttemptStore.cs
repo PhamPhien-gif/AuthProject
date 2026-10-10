@@ -43,10 +43,9 @@ public sealed class PasswordAttemptStore(IDbContextFactory<AuthDbContext> factor
             new(Method: AuthenticationMethod.Password)));
         if (!decision.Accepted)
         {
-            var agent = http?.HttpContext?.Request.Headers.UserAgent.ToString();
             context.LoginHistories.Add(new LoginHistory { UserId = user?.Id, Method = AuthenticationMethod.Password,
                 Outcome = AuditOutcome.Failure, ReasonCode = decision.Reason, OccurredAt = now, TraceId = traceId,
-                IpAddress = http?.HttpContext?.Connection.RemoteIpAddress?.ToString(), UserAgent = agent is null ? null : agent[..Math.Min(agent.Length, 256)] });
+                IpAddress = HistoryPrivacy.MaskIp(http?.HttpContext?.Connection.RemoteIpAddress?.ToString()), UserAgent = null });
         }
         if (!previouslyLocked && user?.LockoutEnd > now)
             writer.Stage(new(AuditEventType.AccountLocked, AuditOutcome.Success, AuditReason.Locked, traceId, SubjectId: user.Id));

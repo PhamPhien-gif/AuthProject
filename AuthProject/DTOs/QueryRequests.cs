@@ -8,7 +8,7 @@ public class PagingRequest
     public int PageSize { get; init; } = 20;
 }
 
-public sealed class HistoryQuery : PagingRequest
+public class HistoryQuery : PagingRequest
 {
     public DateTimeOffset? From { get; init; }
     public DateTimeOffset? To { get; init; }

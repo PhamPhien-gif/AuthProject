@@ -6,6 +6,10 @@ using log4net;
 using log4net.Config;
 using log4net.Repository;
 using Microsoft.AspNetCore.DataProtection;
+using AuthProject.Configuration;
+using log4net.Appender;
+using log4net.Core;
+using System.Xml.Linq;
 
 namespace AuthProject.Logging;
 
@@ -42,18 +46,46 @@ public sealed class AuditWriter(AuthDbContext context, IAuditPayloadProtector pr
     }
 }
 
-public sealed class Log4NetAuditSink(ILog log) : IAuditSink, IDisposable
+public sealed class AuditFileErrorHandler : IErrorHandler
 {
+    private int errors;
+    public int Errors => Volatile.Read(ref errors);
+    public void Error(string message) => Interlocked.Increment(ref errors);
+    public void Error(string message, Exception exception) => Interlocked.Increment(ref errors);
+    public void Error(string message, Exception? exception, ErrorCode errorCode) => Interlocked.Increment(ref errors);
+}
+
+public sealed class Log4NetAuditSink : IAuditSink, IDisposable
+{
+    private readonly ILog log;
+    private readonly object gate = new();
+    private readonly AuditFileErrorHandler[] handlers;
+    public Log4NetAuditSink(ILog log)
+    {
+        this.log = log;
+        handlers = (log.Logger.Repository?.GetAppenders() ?? []).OfType<AppenderSkeleton>().Select(a =>
+        {
+            var handler = a.ErrorHandler as AuditFileErrorHandler ?? new AuditFileErrorHandler();
+            a.ErrorHandler = handler; return handler;
+        }).ToArray();
+    }
     private ILoggerRepository? ownedRepository;
 
-    internal static Log4NetAuditSink Create(bool enabled, string configurationFile)
+    internal static Log4NetAuditSink Create(AuditLogOptions options, string contentRoot, string configurationFile)
     {
-        if (!enabled) return new Log4NetAuditSink(LogManager.GetLogger("Auth.Audit.Disabled")) { disabled = true };
+        if (!options.Enabled) return new Log4NetAuditSink(LogManager.GetLogger("Auth.Audit.Disabled")) { disabled = true };
         var repository = LogManager.CreateRepository("Auth.Audit." + Guid.NewGuid());
         try
         {
             if (!File.Exists(configurationFile)) throw new InvalidOperationException("Audit log4net configuration is missing.");
-            XmlConfigurator.Configure(repository, new FileInfo(configurationFile));
+            var directory = Path.GetFullPath(options.Directory, contentRoot);
+            System.IO.Directory.CreateDirectory(directory);
+            var config = XElement.Load(configurationFile); var appender = config.Element("appender")!;
+            appender.Element("file")!.SetAttributeValue("value", Path.Combine(directory, "audit-" + options.InstanceId + ".jsonl"));
+            appender.Element("maximumFileSize")!.SetAttributeValue("value", options.MaximumFileSizeMb + "MB");
+            appender.Element("maxSizeRollBackups")!.SetAttributeValue("value", options.MaxBackups);
+            var document = new System.Xml.XmlDocument(); document.LoadXml(config.ToString());
+            XmlConfigurator.Configure(repository, document.DocumentElement!);
             return new Log4NetAuditSink(LogManager.GetLogger(repository.Name, "Auth.Audit")) { ownedRepository = repository };
         }
         catch { repository.Shutdown(); throw; }
@@ -64,7 +96,13 @@ public sealed class Log4NetAuditSink(ILog log) : IAuditSink, IDisposable
     {
         if (disabled) throw new InvalidOperationException("The audit file sink is disabled.");
         AuditSerialization.Validate(envelope.Record);
-        log.Info(AuditSerialization.Serialize(envelope));
+        lock (gate)
+        {
+            if (!log.IsInfoEnabled || handlers.Length == 0) throw new IOException("Audit sink is unavailable.");
+            var before = handlers.Sum(h => h.Errors);
+            log.Info(AuditSerialization.Serialize(envelope));
+            if (handlers.Sum(h => h.Errors) != before) throw new IOException("Audit sink write failed.");
+        }
     }
 
     public void Dispose() => ownedRepository?.Shutdown();

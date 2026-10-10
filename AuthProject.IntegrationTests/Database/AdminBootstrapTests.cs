@@ -23,6 +23,7 @@ public sealed class AdminBootstrapTests(SqlServerFixture fixture) : IClassFixtur
         start.Environment["Persistence__DataProtectionKeyDirectory"] = Path.Combine(Path.GetTempPath(), "AuthProject_Test_Bootstrap_" + fixture.DatabaseName);
         foreach (var flag in new[] { "Jwt", "Email", "Refresh", "Registration", "PasswordRecovery", "Google", "EmailOtp" }) start.Environment[$"Auth__{flag}__Enabled"] = "false";
         start.Environment["Audit__Log4Net__Enabled"] = "false";
+        start.Environment["Audit__Delivery__Enabled"] = "false"; start.Environment["Audit__Retention__Enabled"] = "false";
         start.Environment["AUTHPROJECT_BOOTSTRAP_ADMIN_EMAIL"] = email; start.Environment["AUTHPROJECT_BOOTSTRAP_ADMIN_PASSWORD"] = password;
         start.Environment["AUTHPROJECT_BOOTSTRAP_ADMIN_DISPLAY_NAME"] = "Bootstrap Admin";
         using var process = Process.Start(start)!; var output = process.StandardOutput.ReadToEndAsync(); var errors = process.StandardError.ReadToEndAsync();

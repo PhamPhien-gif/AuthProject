@@ -1,6 +1,6 @@
 # Kiến trúc và thiết kế bảo mật
 
-**Thiết kế toàn hệ thống; P00–P11 đã triển khai, gồm password recovery, MFA Email OTP, Google/OIDC và quản trị RBAC; history/audit API và delivery audit chờ P12.** Các giá trị timeout/quota là baseline
+**Thiết kế toàn hệ thống; P00–P12 đã triển khai, gồm Google/OIDC, RBAC, history/audit query và delivery/retention; production gate chờ P13.** Các giá trị timeout/quota là baseline
 để test, sẽ điều chỉnh bằng đo đạc ở P13. Xem thứ tự triển khai ở [roadmap](01-IMPLEMENTATION-PLAN.md).
 
 ## 1. Layered Architecture
@@ -394,6 +394,36 @@ TraceId phải lấy từ server, không dùng request body/header credentials. 
 bằng Data Protection purpose `AuthProject.AuditOutbox.v1`. Log4net adapter xuất JSON vào RollingFileAppender
 (10 MB/file, 10 backup), mặc định tắt; chưa có worker, retry, retention theo ngày hoặc delivery acknowledgment.
 Key directory có cấu hình/ignore; ACL, mã hóa key lúc lưu và shared key store production là gate P13.
+
+P12 đã nối delivery worker riêng cho OutboxKind.Audit. Claim conditional rowversion trong transaction,
+lease 120s, write ngoài transaction; acknowledgment chỉ khi rowversion/lease còn đúng.
+Backoff 30–900s, tối đa 10 attempts; exhausted/crashed final lease chuyển DeadLetteredAt,
+LastErrorCode chỉ PAYLOAD_INVALID/SINK_UNAVAILABLE/LEASE_EXHAUSTED, alert ILogger Error
+với MessageId/EventId, không raw exception/payload. Pending và dead-letter không bị cleanup.
+So khớp protected envelope với audit source SQL trước write. EventId giữ nguyên qua retry/crash,
+consumer có thể deduplicate; không bảo đảm exactly-once hoặc disk fsync/power-loss durability.
+
+P12 sink giữ JSON allowlist, RollingFileAppender XML + typed options override directory/size/backups;
+filename audit-<instanceId>.jsonl, default GUID per process để tránh nhiều process cùng roll một file.
+Custom IErrorHandler phát hiện lỗi mà log4net thường nuốt và ném safe IOException cho dispatcher,
+không acknowledge thành công khi disk/file lock lỗi. Real file-lock test đã kiểm chứng.
+[Apache log4net về multi-process rolling và xử lý lỗi](https://logging.apache.org/log4net/manual/faq.html).
+File directory tính từ content root, ngoài webroot; không có download/static log endpoint.
+ACL đọc/ghi do operator giới hạn cho service identity và nhóm vận hành, không grant broad access từ code.
+
+Retention P12 opt-in: history 90d, audit 365d, processed outbox 7d, terminal-family grace 7d;
+batch 100 records/session families. Token cleanup khóa User trước, recheck family state để serialize refresh/logout.
+Không xóa consumed refresh chỉ vì token.ExpiresAt đã qua: giữ cả chain khi session còn live.
+Chỉ terminal family sau grace mới xóa refresh chain cùng statement; session có history FK được giữ.
+History/audit append-only trong use case; maintenance bulk delete/scrub là exception có policy rõ ràng.
+Audit chưa giao hàng, kể cả dead-letter, được giữ để điều tra/requeue; chưa có legal-hold system.
+File cleanup khi Retention enabled chỉ xóa owned audit filenames cũ trong directory, không recursive/symlink files.
+Size/backups áp dụng ngay khi file sink bật; age retention chỉ chạy khi retention worker bật.
+
+PII P12: IP mask IPv4 /24 hoặc IPv6 /48 trước khi lưu login success/failure; không lưu raw User-Agent mới.
+History API tiếp tục mask dữ liệu legacy và không trả User-Agent. Retention scrub legacy IP/UA theo batch.
+Audit API chỉ project allowlisted metadata sessionId/method/count, không raw SafeMetadata/protected payload.
+User history SQL filter owner; Admin audit require Admin.Read/MFA SQL và filter/sort/paging whitelist.
 
 Baseline retention dự kiến: login history 90 ngày, audit 365 ngày, local file 30 ngày theo size/time;
 chốt theo yêu cầu vận hành trước production. Quyền đọc/sửa file và audit DB được giới hạn;

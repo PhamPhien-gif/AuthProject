@@ -1,6 +1,6 @@
 # API, DTO và lỗi thống nhất
 
-**P11 đã triển khai các flow P05–P10 và quản trị RBAC; history/audit query chờ P12.** Prefix `/api/v1`.
+**P12 đã triển khai các flow P05–P11 và history/audit query.** Prefix `/api/v1`.
 JSON camelCase, UTC ISO-8601, ID opaque/Guid. Thành công dùng DTO trực tiếp, không bọc mọi
 response trong `success/message/data`; lỗi dùng `application/problem+json` thống nhất.
 
@@ -321,4 +321,22 @@ no-op → 204, không revoke. Thay đổi thật → 204, tăng version/revoke/a
 
 PATCH /users/me body {"displayName":"New name"}, không nhận userId để chọn owner.
 Sau 204 gọi GET /auth/me để lấy profile mới. Name đổi không logout hoặc đổi credentials.
-Bootstrap chỉ CLI, không có route /admin/bootstrap. History/audit endpoints trong catalog vẫn là kế hoạch P12.
+Bootstrap chỉ CLI, không có route /admin/bootstrap. History/audit endpoints đã triển khai ở P12.
+
+## 8. History và audit query P12
+
+GET `/users/me/login-history` với bearer; query from/to UTC theo cặp, tối đa 90 ngày,
+sort occurredAtAsc/occurredAtDesc, page>=1/pageSize 1–100, mặc định 1/20.
+Response PagedResponse<LoginHistoryResponse>: id/occurredAt/method/outcome/reasonCode/sessionId/ipPrefix.
+Owner luôn lấy từ actor SQL/JWT, không userId query/body. Unknown-user failed login không gắn vào history người khác.
+ipPrefix IPv4 /24, IPv6 /48; không raw IP, User-Agent, credentials hoặc token. Pending MFA khác success.
+
+GET `/admin/audit-logs` cần Admin.Read + MFA session SQL, không cần recent proof chỉ để đọc.
+Query chung như history, thêm actorUserId/subjectId GUID khác rỗng, eventType/outcome/reason
+allowlist tên enum chính xác (không numeric), traceId bounded 64 ASCII server trace characters.
+Filters kết hợp AND; sort cố định OccurredAt + Id để paging ổn định.
+Response PagedResponse<AuditResponse>: eventId/occurredAt/actorUserId/subjectId/eventType/outcome/
+reasonCode/traceId/metadata. Metadata chỉ sessionId/method/count; không raw SafeMetadata hoặc protected outbox.
+Không có query tự do, không raw SQL, không public download file log endpoint.
+Anonymous 401, User 403 AUTH_FORBIDDEN, Admin chưa enrolled 403 AUTH_MFA_REQUIRED;
+invalid filters/paging/date range 400 VALIDATION_FAILED. Page quá xa trả items rỗng + totalCount.

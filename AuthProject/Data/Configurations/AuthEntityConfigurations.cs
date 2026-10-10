@@ -202,6 +202,7 @@ public sealed class OutboxConfiguration : IEntityTypeConfiguration<OutboxMessage
         Mapping.Entity(b, "OutboxMessages");
         b.Property(x => x.Kind).HasConversion<string>().HasMaxLength(16).IsUnicode(false);
         b.Property(x => x.ProtectedPayload).HasMaxLength(32768);
+        b.Property(x => x.LastErrorCode).HasMaxLength(32).IsUnicode(false);
         b.HasIndex(x => new { x.EventId, x.Kind }).IsUnique();
         b.HasIndex(x => x.NextAttemptAt).HasFilter("[ProcessedAt] IS NULL");
         b.ToTable(t => t.HasCheckConstraint("CK_OutboxMessages_Attempts", "[Attempts] >= 0"));

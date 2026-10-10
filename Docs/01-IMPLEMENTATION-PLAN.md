@@ -1,6 +1,6 @@
 ﻿# Kế hoạch triển khai Auth
 
-Ngày lập: 09/10/2026. Cập nhật P11: 10/10/2026. Trạng thái: **P00–P11 đã triển khai, P12–P13 chờ lệnh**.
+Ngày lập: 09/10/2026. Cập nhật P12: 10/10/2026. Trạng thái: **P00–P12 đã triển khai, P13 chờ lệnh**.
 Kết quả và giới hạn kiểm chứng P01: [báo cáo P01](06-P01-RESULTS.md).
 Kết quả và cách mở rộng P02: [báo cáo P02](07-P02-RESULTS.md).
 Kết quả persistence, hashing và audit: [báo cáo P03](08-P03-RESULTS.md).
@@ -12,6 +12,7 @@ Kết quả password recovery/change/reauthenticate: [báo cáo P08](13-P08-RESU
 Kết quả MFA Email OTP/enrollment/step-up/recovery: [báo cáo P09](14-P09-RESULTS.md).
 Kết quả Google/OIDC, link/unlink và reauthentication: [báo cáo P10](15-P10-RESULTS.md).
 Kết quả RBAC, quản trị user/role và bootstrap Admin: [báo cáo P11](16-P11-RESULTS.md).
+Kết quả history/audit query, log4net delivery và retention: [báo cáo P12](17-P12-RESULTS.md).
 Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant hoặc microservice.
 
 ## 1. Nguyên tắc điều khiển phạm vi
@@ -39,7 +40,7 @@ Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant h
 | P09 | MFA | Email OTP, enrollment, disable, recovery | P08 | Hoàn tất — 435 test pass toàn solution |
 | P10 | Social login | Google OAuth 2.0/OIDC, linking | P09 | Hoàn tất — 489 test pass toàn solution |
 | P11 | Authorization | RBAC, policy, quản trị user/role | P10 | Hoàn tất — 538 test pass toàn solution |
-| P12 | Quan sát | Login History, AuditLog API, log4net delivery | P11 | Chờ lệnh |
+| P12 | Quan sát | Login History, AuditLog API, log4net delivery | P11 | Hoàn tất — 570 test pass, xem báo cáo P12 |
 | P13 | Phát hành | E2E, security regression, Swagger, vận hành | P12 | Chờ lệnh |
 
 Đây là thứ tự thực thi mặc định; mức ưu tiên không cho phép bỏ qua dependency.
@@ -56,7 +57,7 @@ Ghi audit bắt đầu ở P03 và được nối vào từng flow ngay khi flow
 - [x] Bỏ WeatherForecast và test rỗng từ template.
 - [x] Thêm `.gitignore`, `.editorconfig`, `.env.example`, pin SDK 8 hiện có.
 - [x] Viết Docs cho kiến trúc, API, TDD, local và roadmap.
-- [x] P01–P11 đã triển khai theo lệnh riêng; P12–P13 chưa thực hiện.
+- [x] P01–P12 đã triển khai theo lệnh riêng; P13 chưa thực hiện.
 
 Nghiệm thu: restore/build được; runner xUnit chạy được nhưng chưa có test; ignore giữ lại
 source, Docs và file example, loại bỏ output/secrets. Kết quả thực tế xem [local](05-LOCAL-DEVELOPMENT.md).
@@ -312,6 +313,15 @@ Release: **158 unit + 145 HTTP/startup + 235 SQL = 538 passed**, 0 failed/skippe
 Red: user không đọc history người khác; admin filter/pagination; log redaction;
 outbox retry không mất event; disk sink lỗi không khiến Auth state commit nửa chừng.
 Nghiệm thu: SQL là bản audit query được; log4net là kênh logging, không tuyên bố file log bất biến.
+
+Kết quả P12: history owner-only và admin audit/MFA query, DTO/filter/sort/pagination bounded, LINQ projection.
+Log4net JSON RollingFileAppender theo process, error handler phát hiện lỗi file bị nuốt;
+outbox lease/rowversion, backoff, max-attempt dead-letter + safe error alert, EventId giữ nguyên khi retry.
+Retention opt-in, xóa theo batch và grace, giữ consumed refresh tombstone khi family còn sống;
+audit pending/dead-letter được giữ. IP /24 hoặc /48, raw User-Agent không lưu mới/không trả API;
+retention scrub PII cũ. Migration AddAuditDeliveryState cần áp dụng trước startup bản mới.
+Chưa sửa .env hoặc update DB ứng dụng; worker/cleanup mặc định tắt. [Bằng chứng P12](17-P12-RESULTS.md).
+Release: **169 unit + 151 HTTP/startup + 250 SQL = 570 passed**, 0 failed/skipped; build 0 warning/error.
 
 ### P13 — Kiểm thử hệ thống và sẵn sàng vận hành
 

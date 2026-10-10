@@ -23,6 +23,11 @@ public sealed class PersistenceOptions
 public sealed class AuditLogOptions
 {
     public bool Enabled { get; set; }
+    public string Directory { get; set; } = "Logs";
+    public string InstanceId { get; set; } = Guid.NewGuid().ToString("N");
+    public int MaximumFileSizeMb { get; set; } = 10;
+    public int MaxBackups { get; set; } = 10;
+    public int FileRetentionDays { get; set; } = 30;
 }
 
 public static class PersistenceServices
@@ -69,7 +74,7 @@ public static class PersistenceServices
         services.AddScoped<IAuditWriter, AuditWriter>();
         services.AddOptions<AuditLogOptions>().Bind(configuration.GetSection("Audit:Log4Net"));
         services.AddSingleton<IAuditSink>(provider => Log4NetAuditSink.Create(
-            provider.GetRequiredService<IOptions<AuditLogOptions>>().Value.Enabled,
+            provider.GetRequiredService<IOptions<AuditLogOptions>>().Value, environment.ContentRootPath,
             Path.Combine(AppContext.BaseDirectory, "Logging", "log4net.config")));
         return services;
     }

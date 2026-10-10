@@ -35,4 +35,6 @@ public sealed class OutboxMessage : VersionedEntity
     public int Attempts { get; set; }
     public DateTimeOffset? ProcessedAt { get; set; }
     public DateTimeOffset? LeaseUntil { get; set; }
+    public DateTimeOffset? DeadLetteredAt { get; set; }
+    public string? LastErrorCode { get; set; }
 }

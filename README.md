@@ -2,7 +2,7 @@
 
 Backend Auth ASP.NET Core, SQL Server, EF Core + LINQ, tổ chức theo Layered Architecture
 bằng folder trong một project ứng dụng `AuthProject`. Project xUnit tách riêng để kiểm thử.
-Phạm vi hiện tại: **P11 — Register/Login/JWT/GetMe, refresh rotation/logout/session, password recovery, MFA Email OTP, Google OAuth/OIDC và quản trị RBAC/user/role/bootstrap Admin**. History/audit query/delivery chờ P12.
+Phạm vi hiện tại: **P12 — Register/Login/JWT/GetMe, refresh rotation/logout/session, password recovery, MFA Email OTP, Google OAuth/OIDC, quản trị RBAC và history/audit query/delivery/retention**.
 
 ## Đọc theo thứ tự
 
@@ -22,6 +22,7 @@ Phạm vi hiện tại: **P11 — Register/Login/JWT/GetMe, refresh rotation/log
 14. [Kết quả P09, MFA Email OTP và recovery](Docs/14-P09-RESULTS.md).
 15. [Kết quả P10, Google/OIDC, linking và migration mới](Docs/15-P10-RESULTS.md).
 16. [Kết quả P11, RBAC, profile và bootstrap Admin](Docs/16-P11-RESULTS.md).
+17. [Kết quả P12, history/audit, log4net worker và retention](Docs/17-P12-RESULTS.md).
 
 ## Đã khởi tạo
 
@@ -36,14 +37,14 @@ Phạm vi hiện tại: **P11 — Register/Login/JWT/GetMe, refresh rotation/log
 Đã có DTO/FluentValidation, ProblemDetails, exception handler, giới hạn request và typed options.
 Đã có entities, DbContext/configurations, migration và SQL script idempotent, repository EF + LINQ,
 IdentityV3 password hasher, audit SQL/outbox mã hóa và adapter log4net. Persistence và file sink
-mặc định tắt; không tự migrate database khi startup. Worker delivery thuộc P12.
+mặc định tắt; không tự migrate database khi startup. Audit delivery và retention đã có, mặc định tắt.
 Đã có endpoint Register/Verify/Resend, MailKit SMTP adapter và worker email outbox.
 Registration mặc định tắt; cần bật persistence/email và cấu hình đầy đủ để sử dụng.
 Đã có JWT RS256 + SQL session validation mỗi request, MFA Email OTP và Google/OIDC với local MFA gate.
 Login/JWT mặc định tắt, cần bật persistence và cấu hình RSA private key/issuer/audience.
-Worker delivery audit log4net vẫn thuộc P12.
+Worker audit log4net có lease/retry/dead-letter; retention giữ pending audit và live refresh tombstone.
 Limiter IP/account/session đã có, cùng SQL lockout atomic, dummy hash và cấu hình trusted proxy.
-Swagger có các operation P05–P11, Bearer authorization và CSRF header. Các endpoint probe chỉ nằm trong project test.
+Swagger có các operation P05–P12, Bearer authorization và CSRF header. Các endpoint probe chỉ nằm trong project test.
 
 ## Kiểm tra khung project
 
@@ -64,12 +65,13 @@ Thiếu dependency SQL sẽ fail, không tự skip.
 
 ## Cách yêu cầu triển khai
 
-Ví dụ: **“Triển khai P12 theo Docs, áp dụng TDD và báo kết quả kiểm tra.”**
+Ví dụ: **“Triển khai P13 theo Docs, áp dụng TDD và báo kết quả kiểm tra.”**
 Mỗi lần chỉ thực hiện bước được yêu cầu và dependency đã được cho phép.
-P00–P11 đã hoàn tất; **538 test pass** (158 unit, 145 HTTP/startup, 235 SQL); xem [báo cáo P11](Docs/16-P11-RESULTS.md).
+P00–P12 đã hoàn tất; **570 test pass** (169 unit, 151 HTTP/startup, 250 SQL); xem [báo cáo P12](Docs/17-P12-RESULTS.md).
 API Development và EF CLI đọc `.env` local; xem [hướng dẫn](Docs/05-LOCAL-DEVELOPMENT.md#2-chuỗi-kết-nối-được-cung-cấp).
-P12–P13 chờ lệnh. Cấu hình Google và migration P10 ở [local mục 16](Docs/05-LOCAL-DEVELOPMENT.md#16-bật-google-oauthoidc-p10).
-Chạy `dotnet ef database update --project AuthProject --startup-project AuthProject` trước startup bản P10,
-kể cả Google tắt. Gate phát hành vẫn thuộc P13.
+P13 chờ lệnh. Cấu hình Google ở [local mục 16](Docs/05-LOCAL-DEVELOPMENT.md#16-bật-google-oauthoidc-p10).
+Chạy `dotnet ef database update --project AuthProject --startup-project AuthProject` trước startup bản P12,
+kể cả các worker đang tắt. Migration AddAuditDeliveryState, cấu hình và vận hành audit ở
+[local mục 18](Docs/05-LOCAL-DEVELOPMENT.md#18-history-auditlog-và-retention-p12). Gate phát hành vẫn thuộc P13.
 P11 không có migration mới. Bootstrap/enrollment/quản trị ở [local mục 17](Docs/05-LOCAL-DEVELOPMENT.md#17-rbac-và-bootstrap-admin-p11);
 bootstrap không tự chạy khi startup và Admin mới phải enroll MFA trước khi dùng quyền quản trị.

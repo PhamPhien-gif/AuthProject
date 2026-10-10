@@ -1,6 +1,6 @@
 ﻿# Chạy local và cấu hình
 
-## 1. Trạng thái hiện tại: P11
+## 1. Trạng thái hiện tại: P12
 
 `global.json` chọn SDK **10.0.401** + latestPatch, mọi project target `net10.0` qua
 `Directory.Build.props`. IDE phải hỗ trợ SDK này; CLI là cách build đã được kiểm chứng.
@@ -9,7 +9,7 @@ API có Swagger, DTO/FluentValidation, ProblemDetails, exception handler, option
 đã có entities, DbContext/migration, repositories, password hasher, audit/outbox và log4net adapter;
 đã có endpoint Register/Verify/Resend và SMTP email worker. Registration, persistence và file sink mặc định tắt.
 Rate limiting mặc định bật; đã có SQL lockout, credential gate và trusted proxy options.
-Swagger có Register/Login/GetMe, refresh/logout/session, password recovery, MFA Email OTP, Google/OIDC và quản trị RBAC.
+Swagger có các flow Auth/RBAC, history cá nhân và audit admin. Audit delivery/retention mặc định tắt.
 JWT mặc định tắt cho đến khi đủ persistence, issuer/audience/RSA private key.
 Không cần kết nối SQL/SMTP/Google để build hoặc mở Swagger; SQL chỉ cần cho nhóm test SQL.
 
@@ -139,7 +139,7 @@ không dùng nguyên cấu hình local để phát hành production. Không xóa
 `Security__PasswordHash__IterationCount` mặc định 210000; cho phép 210000–1000000.
 File adapter có thể bật bằng `Audit__Log4Net__Enabled=true`, config ở `AuthProject/Logging/log4net.config`;
 path `Logs/audit.jsonl` tính từ working directory. P03 chưa có worker gọi sink từ outbox;
-bật flag này chưa tự phát event. Worker/retry/retention hoàn thiện ở P12.
+bật riêng flag này chưa tự phát event. Bật worker delivery theo mục 18; retry/retention đã có ở P12.
 
 ## 5. Verification P00
 
@@ -350,7 +350,7 @@ Resend thay token và vô hiệu các token verify cũ. Limiter P04 vẫn áp d�
 Worker poll 5 giây, tối đa 10 message/lượt, lease 120 giây, send timeout 30 giây;
 SMTP lỗi retry 30–900 giây, tối đa 10 attempts. User đã commit không bị mất/tạo thêm khi SMTP lỗi.
 Email expired/replaced/consumed bị đánh dấu processed và không gửi; ProcessedAt có nghĩa xử lý xong,
-không phải bằng chứng recipient đã nhận. Audit outbox vẫn chờ worker P12.
+không phải bằng chứng recipient đã nhận. Audit outbox có worker riêng P12, xem mục 18.
 Record đạt 10 attempts vẫn pending, cần operator điều tra và requeue đúng ID sau sửa nguyên nhân;
 không tự reset toàn outbox. Lease còn hạn được tôn trọng, lease hết hạn được reclaim.
 
@@ -423,7 +423,7 @@ nhưng session expiry dùng boundary UTC chính xác. P06 chưa extend idle/Last
 Rehash/session/digest/history success/audit completion cùng transaction; primary-factor counter/audit
 đã commit trước đó theo P04, không rollback sự kiện primary factor khi completion lỗi.
 History ghi failure cho password gate, Pending cho MFA primary factor, Success khi session commit;
-history query API/log4net delivery vẫn thuộc P12.
+history query API/log4net delivery đã có ở P12, xem mục 18.
 
 Ở thời điểm P06, refresh chỉ có digest dự phòng; P07 đã thay bằng cookie/rotation/reuse/logout/CSRF.
 Khi bật module Refresh theo mục 13, Login yêu cầu thêm CSRF header/context cookie.
@@ -489,7 +489,7 @@ Idle 7 ngày được kéo dài chỉ khi refresh thành công, absolute 30 ngà
 429 có Retry-After và giữ cookie/token để retry sau cooldown. Không retry song song hoặc dùng token cũ
 sau response refresh thành công. Response bị mất sau commit có thể buộc login lại (strict reuse).
 Module tắt: Login access-only P06, không refresh cookie; CSRF/Refresh/Logout trả 503.
-Audit state/outbox SQL đã ghi; worker phát log4net vẫn P12. Xem [kết quả P07](12-P07-RESULTS.md).
+Audit state/outbox SQL đã ghi; worker phát log4net đã có ở P12, xem mục 18. Xem [kết quả P07](12-P07-RESULTS.md).
 
 ## 14. Bật password recovery/change/reauthenticate P08
 
@@ -602,7 +602,7 @@ Password reset không tắt MFA hoặc cấp factor proof. Password reauthentica
 
 Một browser có một cookie MFA operation, nên flow mới thay binding của flow cũ. Swagger cần allowed origin đúng địa chỉ HTTPS của API, CSRF header và browser cookie; Authorize bearer chỉ cho enrollment/step-up/management.
 Email OTP không chống phishing, phụ thuộc mailbox và không được quảng bá là NIST AAL2.
-P10 đã nối Google/OIDC; provider login vẫn qua local MFA trước khi cấp phiên. Audit SQL/outbox đã ghi sự kiện MFA; delivery log4net worker chờ P12.
+P10 đã nối Google/OIDC; provider login vẫn qua local MFA trước khi cấp phiên. Audit SQL/outbox đã ghi sự kiện MFA; delivery log4net worker đã có ở P12, xem mục 18.
 
 Kiểm chứng: **132 unit + 130 HTTP/startup + 173 SQL = 435 passed**, 0 failed/skipped; build 0 warning/error. Reports ignored tại TestResults/P09; [báo cáo P09](14-P09-RESULTS.md).
 SQL dùng database cô lập, email transport giả; SMTP thật cần kiểm tra với cấu hình của bạn.
@@ -697,7 +697,7 @@ Test dùng fake Google discovery/JWKS/token endpoint, PKCE và ID token ký RSA 
 SQL Express dùng AuthProject_Test_GUID, không DefaultConnection. SMTP fake, không gửi email thật.
 Chưa chạy consent/cookie/Google reauthentication trên browser thật với credentials của bạn;
 đặc biệt cần kiểm tra provider có trả signed auth_time khi max_age=0. Thiếu claim sẽ fail closed.
-[Kết quả P10 và lệnh test](15-P10-RESULTS.md). P11 đã triển khai tại mục 17; P12–P13 chờ lệnh.
+[Kết quả P10 và lệnh test](15-P10-RESULTS.md). P11 đã triển khai tại mục 17, P12 tại mục 18; P13 chờ lệnh.
 Regression Release P10: **140 unit + 141 HTTP/startup + 208 SQL = 489 passed**, 0 failed/skipped;
 build 0 warning/error và restore --locked-mode pass.
 
@@ -774,7 +774,125 @@ PATCH `/api/v1/users/me` với bearer + CSRF khi Refresh bật, JSON `{"displayN
 Chỉ sửa name của validated actor, không email/roles/status; role/userId injection bị reject.
 Gọi GET `/api/v1/auth/me` để lấy profile mới. Không tăng AuthVersion/revoke khi chỉ sửa display name.
 Session list/revoke vẫn owner-scoped như P07; Admin không được revoke session người khác qua route cá nhân.
-History cá nhân/audit admin API, delivery log4net và cleanup vẫn chờ P12.
+History cá nhân/audit admin API, delivery log4net và cleanup đã có ở P12, xem mục 18.
 
 [Kết quả P11, TDD và kiểm thử](16-P11-RESULTS.md). Không gửi SMTP/Google thật trong automated tests.
 Release: **158 unit + 145 HTTP/startup + 235 SQL = 538 passed**, 0 failed/skipped; build 0 warning/error.
+
+## 18. History, AuditLog và retention P12
+
+### Migration
+
+Migration `20261010132626_AddAuditDeliveryState` thêm nullable DeadLetteredAt/LastErrorCode
+vào OutboxMessages. **Cập nhật schema trước startup bản P12 kể cả worker đang tắt**:
+
+```powershell
+dotnet tool restore
+dotnet ef database update --project AuthProject --startup-project AuthProject
+```
+
+Chạy từ solution root; EF CLI đọc connection trong .env như trước.
+[004-P12-AuditDelivery.sql](Sql/004-P12-AuditDelivery.sql) là delta idempotent từ schema P10 để review.
+Phiên triển khai chỉ migrate SQL test cô lập, chưa update AuthProject của bạn.
+
+### API truy vấn
+
+GET `/api/v1/users/me/login-history` với bearer trả PagedResponse<LoginHistoryResponse> của actor.
+from/to UTC theo cặp, range tối đa 90 ngày, sort occurredAtAsc/occurredAtDesc, page/pageSize 1–100.
+IP chỉ /24 hoặc /48, không raw User-Agent/credential; userId query không thay owner.
+GET `/api/v1/admin/audit-logs` với Admin MFA session, query chung và actorUserId/subjectId/
+eventType/outcome/reason/traceId allowlist, metadata chỉ sessionId/method/count.
+Không trả protected outbox payload, không có API tải file log. Xem [API contracts](03-API-CONTRACTS.md#8-history-và-audit-query-p12).
+
+### Bật delivery và file sink
+
+Bổ sung/sửa key đã có trong .env, không tạo duplicate:
+
+```dotenv
+Persistence__Enabled=true
+Audit__Log4Net__Enabled=true
+Audit__Log4Net__Directory='Logs'
+Audit__Log4Net__MaximumFileSizeMb=10
+Audit__Log4Net__MaxBackups=10
+Audit__Log4Net__FileRetentionDays=30
+Audit__Delivery__Enabled=true
+Audit__Delivery__PollSeconds=5
+Audit__Delivery__LeaseSeconds=120
+Audit__Delivery__MaxAttempts=10
+```
+
+Directory tương đối content root API, thường AuthProject/Logs. Default InstanceId là GUID mỗi process;
+file audit-<instanceId>.jsonl và numbered backups. Nếu override InstanceId phải unique giữa process
+cùng directory. Không dùng shared rolling file name giữa instance; restart có thể tạo file mới.
+Directory nằm ngoài webroot; trước vận hành giới hạn ACL cho service identity được ghi và nhóm
+operator được đọc, bỏ inherited broad-read nếu môi trường yêu cầu. Windows dùng Security/Advanced
+của folder; Linux pre-create directory mode 0700 dưới service user. Code không grant Everyone access.
+Log/key directories được gitignore; không commit hoặc đưa vào public publish assets.
+
+Worker chỉ giao OutboxKind.Audit; email workers vẫn riêng. Claim/lease/rowversion, write rồi ack,
+backoff 30/60/120/... cap900s. File sink lỗi không rollback Auth transaction đã commit;
+durable SQL/outbox giữ event để retry. EventId giữ nguyên qua retry để nhận diện duplicates.
+Crash sau write trước ack/lease hết hạn có thể ghi lặp, không exactly-once hoặc guarantee fsync.
+Log4net custom error handler bắt lỗi file bị nuốt; test đã lock file thật và xác minh failure.
+
+### Dead-letter và cảnh báo
+
+Max attempts exhausted hoặc crash ở claim cuối → DeadLetteredAt, ProcessedAt vẫn null.
+LastErrorCode chỉ PAYLOAD_INVALID/SINK_UNAVAILABLE/LEASE_EXHAUSTED; raw exception/body không được lưu/log.
+Dispatcher phát ILogger Error với MessageId/EventId khi dead-letter; worker startup/SQL failure
+phát safe Error và để backlog pending. Thu thập các Error này bằng hệ thống vận hành; routing alert
+ngoài ứng dụng và readiness/metrics chi tiết thuộc P13. Không gửi email/Slack tự động trong P12.
+
+Query vận hành chỉ các field an toàn:
+
+```sql
+SELECT Id, EventId, CreatedAt, Attempts, NextAttemptAt, LeaseUntil,
+       DeadLetteredAt, LastErrorCode
+FROM OutboxMessages
+WHERE Kind = 'Audit' AND ProcessedAt IS NULL
+ORDER BY CreatedAt, Id;
+```
+
+Sau khi sửa file permissions/disk/key/config và xác minh EventId source còn tồn tại, operator có thể
+requeue **một message cụ thể**. Review target database/ID trước khi tự chạy SQL:
+
+```sql
+DECLARE @MessageId uniqueidentifier = '<message-id-do-ban-chon>';
+UPDATE OutboxMessages
+SET DeadLetteredAt = NULL, LastErrorCode = NULL, Attempts = 0,
+    LeaseUntil = NULL, NextAttemptAt = SYSUTCDATETIME()
+WHERE Id = @MessageId AND Kind = 'Audit' AND ProcessedAt IS NULL
+  AND DeadLetteredAt IS NOT NULL
+  AND (LeaseUntil IS NULL OR LeaseUntil <= SYSUTCDATETIME());
+```
+
+Không in/copy ProtectedPayload hoặc credentials. Requeue có thể tạo duplicate EventId, vì delivery
+trước crash có thể đã ghi file. PAYLOAD_INVALID: kiểm tra Data Protection keys và source mismatch,
+không thay raw payload hoặc bỏ qua validation. Không xóa pending/dead-letter chỉ để giảm backlog.
+
+### Bật cleanup sau khi chốt retention
+
+Cleanup mặc định tắt và **thực sự xóa dữ liệu cũ** khi bật. Baseline để cấu hình sau review:
+
+```dotenv
+Audit__Retention__Enabled=true
+Audit__Retention__PollSeconds=3600
+Audit__Retention__BatchSize=100
+Audit__Retention__LoginHistoryDays=90
+Audit__Retention__AuditDays=365
+Audit__Retention__TokenGraceDays=7
+Audit__Retention__ProcessedOutboxDays=7
+```
+
+History/audit/processed outbox xóa theo batch. Audit pending/dead-letter được giữ dù quá retention.
+Refresh consumed/expired vẫn giữ khi family live để detect reuse; chỉ terminal family sau grace mới
+xóa chain cùng statement, khóa User và recheck state. Session có history FK được giữ đến khi history
+được cleanup; batch selection tránh lặp vô ích trên session chỉ còn FK history.
+Challenge expired sau grace được cleanup; legacy raw IP/UA scrub theo batch. Không tắt MFA/recovery flags.
+File age cleanup cần cả Retention enabled và file sink enabled; size/backups vẫn chạy nếu age cleanup tắt.
+Chỉ owned audit filenames cũ trong directory, không recursive hoặc symlink files. Không có legal-hold module;
+chốt retention/backup theo yêu cầu vận hành trước production. Số tokens của một terminal family có thể lớn,
+thao tác xóa chain atomic cần đo tải/lock thời gian ở P13.
+
+[Kết quả P12 và test](17-P12-RESULTS.md). P13 tiếp tục chờ lệnh.
+Regression Release: **570 passed** (169 unit, 151 HTTP/startup, 250 SQL), 0 failed/skipped.

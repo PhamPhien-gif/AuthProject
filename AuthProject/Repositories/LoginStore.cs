@@ -46,7 +46,7 @@ public sealed class LoginStore(IDbContextFactory<AuthDbContext> factory, IOption
         db.RefreshTokens.Add(new RefreshToken { SessionId = session.Id, TokenHash = digest, CreatedAt = now, ExpiresAt = session.IdleExpiresAt });
         db.LoginHistories.Add(new LoginHistory { UserId = user.Id, SessionId = session.Id, Method = AuthenticationMethod.Password,
             Outcome = AuditOutcome.Success, ReasonCode = AuditReason.None, OccurredAt = now, TraceId = traceId,
-            IpAddress = ip is { Length: <= 45 } ? ip : null, UserAgent = userAgent is null ? null : userAgent[..Math.Min(userAgent.Length, 256)] });
+            IpAddress = HistoryPrivacy.MaskIp(ip), UserAgent = null });
         new AuditWriter(db, protector, clock).Stage(new(AuditEventType.LoginCompleted, AuditOutcome.Success, AuditReason.None,
             traceId, user.Id, user.Id, new(SessionId: session.Id, Method: AuthenticationMethod.Password)));
         var roles = await Roles(db, user.Id).ToArrayAsync(cancellationToken);
