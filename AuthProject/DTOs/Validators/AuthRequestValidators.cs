@@ -39,6 +39,10 @@ public sealed class ChangePasswordRequestValidator : AbstractValidator<ChangePas
             .NotEqual(x => x.CurrentPassword).WithErrorCode("PASSWORD_UNCHANGED").WithMessage("Password mới phải khác password hiện tại.");
     }
 }
+public sealed class ReauthenticateRequestValidator : AbstractValidator<ReauthenticateRequest>
+{
+    public ReauthenticateRequestValidator() => RuleFor(x => x.Password).Password(isNew: false);
+}
 public sealed class VerifyOtpRequestValidator : AbstractValidator<VerifyOtpRequest>
 {
     public VerifyOtpRequestValidator()

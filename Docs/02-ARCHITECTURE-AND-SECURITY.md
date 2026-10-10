@@ -1,6 +1,6 @@
 # Kiến trúc và thiết kế bảo mật
 
-**Thiết kế toàn hệ thống; P00–P07 đã triển khai, gồm rotation/reuse/logout/session/CSRF; các flow còn lại chờ lệnh.** Các giá trị timeout/quota là baseline
+**Thiết kế toàn hệ thống; P00–P08 đã triển khai, gồm password recovery/change/reauthenticate; các flow còn lại chờ lệnh.** Các giá trị timeout/quota là baseline
 để test, sẽ điều chỉnh bằng đo đạc ở P13. Xem thứ tự triển khai ở [roadmap](01-IMPLEMENTATION-PLAN.md).
 
 ## 1. Layered Architecture
@@ -147,6 +147,19 @@ verify p50 86,2 ms, p95 264,2 ms. Đây là microbenchmark máy hiện tại, ch
 [Mã nguồn PasswordHasher](https://source.dot.net/Microsoft.Extensions.Identity.Core/PasswordHasher.cs.html).
 
 ## 5. JWT, session và revocation
+
+P08 Forgot/Reset dùng challenge ResetPassword và protected PasswordEmail outbox. Reset/change khóa
+User trước session/family mutations, hash + tăng AuthVersion + consume outstanding challenges + revoke
+all sessions/refresh + audit/notification cùng transaction. MFA/recovery codes không bị tắt hoặc xóa.
+Google-only account không nhận reset challenge và không tự có password. Link fixed HTTPS + fragment,
+không token query/GET. SMTP worker tách khỏi verification worker P05, kind/purpose Data Protection riêng.
+
+Change/reauthenticate lấy actor/session/av từ validated JWT; current password qua credential gate P04,
+SQL lockout giữ nguyên. Completion kiểm tra version/session/user dưới locks. Recent primary/factor
+dựa timestamp SQL, < 5 phút mặc định, reject future proof. Refresh không renew AuthenticatedAt hoặc MFA.
+Password reauthenticate chỉ renew AuthenticatedAt, không MFA/idle/absolute/version, không cấp token;
+factor proof missing/expired cần P09, Google reauthenticate cần P10. Audit Reauthenticated có thể phục vụ
+recent auth policy về sau; không dùng chỉ iat của JWT làm bằng chứng fresh authentication.
 
 Access JWT baseline 5 phút, clock skew tối đa 30 giây; claims tối thiểu `sub`, `jti`, `sid`,
 `iss`, `aud`, `iat`, `nbf`, `exp`, `av` (AuthVersion) và `amr` (P06: pwd).

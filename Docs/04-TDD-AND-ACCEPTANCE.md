@@ -1,6 +1,6 @@
 # TDD, xUnit và kiểm soát chất lượng
 
-Tài liệu này là kế hoạch kiểm thử. **P07 đã có test Register/Verify/Resend/Login/JWT/GetMe/Rotation/Logout/CSRF**, MFA vẫn chờ bước tương ứng;
+Tài liệu này là kế hoạch kiểm thử. **P08 đã có test các flow P05–P07 và password recovery/change/reauthenticate**, MFA vẫn chờ bước tương ứng;
 không dùng kết quả test nền tảng để báo hệ thống Auth đã hoàn tất.
 Xem [bằng chứng P01](06-P01-RESULTS.md) và [lệnh chạy local](05-LOCAL-DEVELOPMENT.md#6-chạy-test-p01).
 P02: [bằng chứng Red/Green và giới hạn](07-P02-RESULTS.md).
@@ -18,6 +18,9 @@ P07: [bằng chứng rotation/reuse/concurrency/CSRF và rollback](12-P07-RESULT
 SQL thật kiểm tra parallel refresh và refresh-vs-logout, cùng owner-scoped revoke/logout-all;
 HTTP kiểm tra cookie/CSRF/CORS, access expiry/revocation và session quota sau verified cookie lookup.
 Test cookie qua HTTP không thay thế smoke test policy cookie/TLS trong browser thực tế.
+P08: [kết quả password lifecycle, rollback và concurrency](13-P08-RESULTS.md).
+Reset token purpose/version/expiry/replay, concurrent reset/forgot và reset-vs-refresh kiểm tra trên SQL thật;
+HTTP chứng minh access/refresh cũ bị chặn, current-password/recent-auth/CSRF enforcement và giữ MFA sau reset.
 
 ## 1. Chu trình cho mỗi lát cắt nghiệp vụ
 

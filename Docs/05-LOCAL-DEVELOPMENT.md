@@ -490,3 +490,61 @@ Idle 7 ngày được kéo dài chỉ khi refresh thành công, absolute 30 ngà
 sau response refresh thành công. Response bị mất sau commit có thể buộc login lại (strict reuse).
 Module tắt: Login access-only P06, không refresh cookie; CSRF/Refresh/Logout trả 503.
 Audit state/outbox SQL đã ghi; worker phát log4net vẫn P12. Xem [kết quả P07](12-P07-RESULTS.md).
+
+## 14. Bật password recovery/change/reauthenticate P08
+
+P08 dùng schema/challenge/outbox hiện tại, thêm enum string PasswordEmail/PasswordResetRequested/
+Reauthenticated; **không có migration mới, không cần EF update riêng cho P08**.
+Giữ Persistence, SMTP và JWT/Refresh config nếu thử toàn bộ flow; Registration không cần bật.
+Thêm vào `.env` hiện có rồi restart API:
+
+```dotenv
+Auth__PasswordRecovery__Enabled=true
+Auth__PasswordRecovery__ResetUrl='https://your-client.example/reset-password'
+Auth__PasswordRecovery__TokenLifetimeSeconds=1800
+Auth__PasswordRecovery__ResendCooldownSeconds=60
+Auth__PasswordRecovery__SendWindowSeconds=900
+Auth__PasswordRecovery__MaxSendsPerWindow=3
+Auth__PasswordRecovery__RecentAuthenticationSeconds=300
+```
+
+ResetUrl phải là trang client HTTPS bạn kiểm soát, không userinfo/query/fragment; thay placeholder.
+Backend chưa có trang frontend reset. Email link `ResetUrl#token=...`; client đọc fragment rồi POST JSON.
+Worker P08 dùng Auth__Registration__PollSeconds/SmtpTimeoutSeconds/LeaseSeconds (mặc định 5/30/120)
+kể cả Registration flag false; các limits được validate khi recovery bật. SMTP/DP keys ở mục 11/12.
+Không đọc token qua query hoặc chạy GET để consume. Không in token/password/SMTP secret vào logs.
+
+Thử trong Swagger:
+
+1. POST `/api/v1/auth/password/forgot` với `{"email":"your-verified-email"}` → generic 202,
+   giống nhau cho account không tồn tại, Google-only, disabled/unverified/cooldown/budget.
+2. Lấy token từ fragment của link trong email, POST `/api/v1/auth/password/reset`:
+   `{"token":"<token>","newPassword":"<new-password>"}` → 204. Không auto-login; access/refresh
+   cũ bị revoke. Token chỉ dùng một lần, 30 phút mặc định; link mới invalidate link cũ.
+3. Login lại bằng password mới. Nếu MFA bật thì vẫn cần MFA (flow/challenge P09); reset không tắt MFA.
+4. Change password cần JWT của actor + current password và primary authentication recent < 5 phút.
+   Nếu Refresh bật, lấy CSRF theo mục 13 và gửi X-CSRF-TOKEN/context cookie/origin.
+   POST `/api/v1/auth/password/change` với `{"currentPassword":"...","newPassword":"..."}` →
+   204, revoke mọi session của actor, clear cookie, gửi thông báo bảo mật qua outbox.
+5. Khi nhận AUTH_STEP_UP_REQUIRED do primary proof quá cũ, gọi
+   POST `/api/v1/auth/reauthenticate` với `{"password":"..."}` + JWT/CSRF → 204,
+   rồi Change. Nếu JWT hết hạn, refresh tuần tự trước; refresh không tự renew primary proof.
+   Password reauthenticate không renew factor proof: MFA proof missing/expired vẫn 403, cần P09.
+
+Password mới 15–128 ký tự theo validator; Change không cho giống current password.
+Actor/session/version lấy từ JWT, không gửi userId/sessionId/role trong JSON. Unknown properties bị reject.
+Current password sai dùng credential gate/SQL lockout P04; 5 failure/900 giây → lock 900 giây,
+Login IP quota áp dụng Change/Reauthenticate. Forgot/Reset dùng Recovery quota IP/account;
+giới hạn gửi SQL default 3/900 giây, cooldown 60 giây, không reset budget khi thay link.
+Input hợp lệ khi module tắt: Forgot/Reset 503; protected routes vẫn cần JWT trước. DTO/binding lỗi 400.
+
+Reset success reset lockout counter, tăng AuthVersion, consume outstanding challenges và revoke sessions,
+giữ MFA flag và recovery codes. Password notification không chứa token/password/hash; link và notification
+được encrypt trong outbox PasswordEmail với purpose DP riêng. Worker retry/backoff tối đa 10 attempts,
+lease rowversion, discard stale reset links. Notification được stage cùng transaction với hash/audit/revoke;
+SMTP lỗi sau commit không làm mất password change. Delivery at-least-once có thể gửi lặp khi crash sau SMTP
+accept trước DB ack; pending đạt 10 attempts cần operator điều tra/requeue, không tự xóa.
+
+Không sửa `.env`, update database ứng dụng hoặc gửi SMTP thật trong phiên triển khai P08.
+Regression Release **121 unit + 109 HTTP/startup + 139 SQL = 369 passed**, 0 failed/skipped,
+build 0 warning/error. Reports ignored tại TestResults/P08; [báo cáo P08](13-P08-RESULTS.md).

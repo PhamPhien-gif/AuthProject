@@ -15,6 +15,8 @@ public sealed record ResetPasswordRequest(string? Token, string? NewPassword);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ChangePasswordRequest(string? CurrentPassword, string? NewPassword);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record ReauthenticateRequest(string? Password);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record VerifyOtpRequest(Guid ChallengeId, string? Code);
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ChallengeRequest(Guid ChallengeId);

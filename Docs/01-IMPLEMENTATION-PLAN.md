@@ -1,6 +1,6 @@
 # Kế hoạch triển khai Auth
 
-Ngày lập: 09/10/2026. Cập nhật P07: 10/10/2026. Trạng thái: **P00–P07 đã triển khai, P08–P13 chờ lệnh**.
+Ngày lập: 09/10/2026. Cập nhật P08: 10/10/2026. Trạng thái: **P00–P08 đã triển khai, P09–P13 chờ lệnh**.
 Kết quả và giới hạn kiểm chứng P01: [báo cáo P01](06-P01-RESULTS.md).
 Kết quả và cách mở rộng P02: [báo cáo P02](07-P02-RESULTS.md).
 Kết quả persistence, hashing và audit: [báo cáo P03](08-P03-RESULTS.md).
@@ -8,6 +8,7 @@ Kết quả chống brute force, lockout và proxy: [báo cáo P04](09-P04-RESUL
 Kết quả Register/Verify/Resend và SMTP outbox: [báo cáo P05](10-P05-RESULTS.md).
 Kết quả Login/JWT/GetMe và session validation: [báo cáo P06](11-P06-RESULTS.md).
 Kết quả rotation/reuse/logout/session/CSRF: [báo cáo P07](12-P07-RESULTS.md).
+Kết quả password recovery/change/reauthenticate: [báo cáo P08](13-P08-RESULTS.md).
 Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant hoặc microservice.
 
 ## 1. Nguyên tắc điều khiển phạm vi
@@ -31,7 +32,7 @@ Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant h
 | P05 | Auth cơ bản | Email, Register, Verify Email | P04 | Hoàn tất — 196 test pass toàn solution |
 | P06 | Auth cơ bản | Login, JWT, authentication, GetMe | P05 | Hoàn tất — 259 test pass toàn solution |
 | P07 | Auth cơ bản | Rotation, reuse detection, logout/revoke | P06 | Hoàn tất — 321 test pass toàn solution |
-| P08 | Vòng đời tài khoản | Forgot/Reset/Change password | P07 | Chờ lệnh |
+| P08 | Vòng đời tài khoản | Forgot/Reset/Change password | P07 | Hoàn tất — 369 test pass toàn solution |
 | P09 | MFA | Email OTP, enrollment, disable, recovery | P08 | Chờ lệnh |
 | P10 | Social login | Google OAuth 2.0/OIDC, linking | P09 | Chờ lệnh |
 | P11 | Authorization | RBAC, policy, quản trị user/role | P10 | Chờ lệnh |
@@ -52,7 +53,7 @@ Ghi audit bắt đầu ở P03 và được nối vào từng flow ngay khi flow
 - [x] Bỏ WeatherForecast và test rỗng từ template.
 - [x] Thêm `.gitignore`, `.editorconfig`, `.env.example`, pin SDK 8 hiện có.
 - [x] Viết Docs cho kiến trúc, API, TDD, local và roadmap.
-- [x] P01–P07 đã triển khai theo lệnh riêng; P08–P13 chưa thực hiện.
+- [x] P01–P08 đã triển khai theo lệnh riêng; P09–P13 chưa thực hiện.
 
 Nghiệm thu: restore/build được; runner xUnit chạy được nhưng chưa có test; ignore giữ lại
 source, Docs và file example, loại bỏ output/secrets. Kết quả thực tế xem [local](05-LOCAL-DEVELOPMENT.md).
@@ -217,6 +218,15 @@ bật cần JWT/Persistence/origins. Release: **110 unit + 98 HTTP/startup + 113
 Red: token sai purpose, expired, reuse, concurrent reset; password reset chặn access/refresh cũ;
 account chưa tồn tại có response giống nhau; MFA vẫn bật sau recovery.
 Nghiệm thu: không có đường tắt bypass MFA bằng password reset.
+
+Kết quả P08: Forgot generic 202 + reset challenge/digest/cooldown/budget, reset atomic hash/version/
+consume/revoke/audit/notification, không auto-login hoặc tắt MFA. Change qua current-password gate P04,
+recent primary/factor SQL checks; password reauthenticate renew chỉ primary, không MFA/session expiry.
+Email reset/notification qua protected PasswordEmail outbox + SMTP worker lease/retry sau commit.
+Google-only không được cấp password. DTO validation/CSRF/error contract giữ thống nhất.
+Không migration mới, không sửa `.env` hoặc update DB ứng dụng; flags/config ở local mục 14.
+Release: **121 unit + 109 HTTP/startup + 139 SQL = 369 passed**, 0 failed/skipped,
+build 0 warning/error. [Bằng chứng và giới hạn P08](13-P08-RESULTS.md).
 
 ### P09 — MFA Email OTP
 

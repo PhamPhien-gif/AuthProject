@@ -1,6 +1,6 @@
 # API, DTO và lỗi thống nhất
 
-**P07 đã triển khai Register/Verify/Resend, Login/GetMe và CSRF/Refresh/Logout/Logout-all/Sessions; các endpoint còn lại chờ bước tương ứng.** Prefix `/api/v1`.
+**P08 đã triển khai các flow P05–P07, Forgot/Reset/Change password và password reauthenticate; các endpoint còn lại chờ bước tương ứng.** Prefix `/api/v1`.
 JSON camelCase, UTC ISO-8601, ID opaque/Guid. Thành công dùng DTO trực tiếp, không bọc mọi
 response trong `success/message/data`; lỗi dùng `application/problem+json` thống nhất.
 
@@ -24,8 +24,8 @@ response trong `success/message/data`; lỗi dùng `application/problem+json` th
 | DELETE /auth/sessions/{sessionId} | Owner + CSRF | 204; unknown/non-owner cùng 404 | P07 |
 | POST /auth/password/forgot | Anonymous | EmailRequest → generic 202 | P08 |
 | POST /auth/password/reset | Anonymous | ResetPasswordRequest → 204, không auto-login | P08 |
-| POST /auth/password/change | Authenticated + step-up | ChangePasswordRequest → 204, revoke tất cả session | P08/P09 |
-| POST /auth/reauthenticate | Authenticated | Password hoặc Google recent proof → step-up result/challenge | P08–P10 |
+| POST /auth/password/change | Authenticated + recent primary/factor + CSRF khi Refresh bật | ChangePasswordRequest → 204, revoke tất cả session | P08/P09 |
+| POST /auth/reauthenticate | Authenticated + CSRF khi Refresh bật | ReauthenticateRequest.password → 204, renew primary proof; Google/factor challenge về sau | P08–P10 |
 | POST /auth/mfa/email/enroll | Authenticated + recent primary auth | 202 enrollment challenge | P09 |
 | POST /auth/mfa/email/enable | Authenticated + enrollment challenge | VerifyOtpRequest → recovery codes một lần; revoke phiên cũ | P09 |
 | POST /auth/mfa/email/verify | Pre-auth challenge context | VerifyOtpRequest → AuthResult hoặc step-up ticket theo purpose | P09 |
@@ -63,6 +63,7 @@ Session delete và logout-all require access JWT; logout hiện tại vẫn làm
 | VerifyEmailRequest.token / ResetPasswordRequest.token | Required, Base64URL bounded length (tối đa 512), purpose/expiry kiểm tra trong use case |
 | ResetPasswordRequest.newPassword | Chính sách password mới |
 | ChangePasswordRequest.currentPassword/newPassword | Required, bounded; mới theo policy; không được same password |
+| ReauthenticateRequest.password | Required, tối đa 128 ký tự, không trim; không nhận actor/session/role |
 | VerifyOtpRequest.challengeId | Guid hợp lệ, bind với pre-auth context, không nhận userId thay thế |
 | VerifyOtpRequest.code | Chính xác 6 ASCII digits, string, không trim tự động |
 | ChallengeRequest.challengeId | Guid hợp lệ và ownership/context verification |
@@ -234,7 +235,45 @@ P06/P04; test P02 kiểm chứng response 401/403/429 và bảo toàn protocol h
   CORS chỉ exact configured origins, allow credentials + GET/POST/DELETE + Content-Type/Authorization/
   X-CSRF-TOKEN; expose X-Trace-Id/Retry-After. SameSite Strict dành cho browser cùng site.
 
-## 6. RBAC matrix
+## 6. Password recovery P08
+
+- Module `Auth:PasswordRecovery:Enabled` mặc định false; bật cần Persistence + Email/SMTP và fixed
+  HTTPS ResetUrl. Registration không bắt buộc bật. Public route input hợp lệ khi tắt trả 503;
+  Change/Reauthenticate cần JWT trước. DTO errors/unknown JSON vẫn qua validation/binding chung.
+- Forgot nhận EmailRequest, generic 202 như register/resend cho active/unknown/disabled/unverified/
+  Google-only/cooldown/budget. Chỉ Active + verified + PasswordHash khác null được stage reset link.
+  Lockout không chặn forgot/reset hợp lệ. Quota Recovery IP/account ở P04, cooldown 60 giây,
+  tối đa 3 link/900 giây/account, token 1800 giây. Resend thay token trước trong transaction.
+- Reset nhận token/newPassword trong JSON, không lấy token query/GET. Token 32 random bytes canonical
+  Base64URL 43 ký tự, SHA-256 digest, bind ResetPassword/user/AuthVersion/expiry/one-time. Invalid,
+  consumed, wrong purpose/version, expired hoặc account không eligible cùng 400 AUTH_CHALLENGE_INVALID.
+- Reset success 204, clear refresh cookie; không JWT/auto-login. Hash mới + AuthVersion tăng + reset
+  lockout counter + consume mọi outstanding challenge + revoke mọi session/refresh của target + audit/
+  protected notification outbox cùng commit. MFA flag và recovery codes giữ nguyên, login vẫn cần MFA.
+- Change nhận currentPassword/newPassword, actor/session/version từ validated JWT, không chọn user từ body.
+  Verify current password qua gate P04 (lockout/audit); kiểm tra lại dưới user/session lock. New password
+  phải theo policy và khác currentPassword. Password gate commit primary audit/counter trước transaction
+  completion, giống Login; lỗi completion không xóa primary proof audit đã commit.
+- Recent primary mặc định < 300 giây (exact boundary 300 bị từ chối), không future timestamp.
+  Nếu MFA bật, MfaVerifiedAt cũng phải recent; current password không tự renew factor proof.
+  Thiếu recent proof → 403 AUTH_STEP_UP_REQUIRED, không đổi hash/revoke. Refresh không renew proof.
+- Reauthenticate nhận password, verify gate + fresh user/session/version, cập nhật chỉ AuthenticatedAt
+  và audit Reauthenticated, trả 204. Không cấp JWT/phiên mới, không kéo dài idle/absolute, không đổi
+  MfaVerifiedAt/AuthVersion. Thiếu recent MFA proof → 403; challenge/factor verification thuộc P09.
+  Với access đã hết hạn, refresh tuần tự trước, sau đó reauthenticate khi cần primary proof.
+- Change success 204, tăng AuthVersion, revoke tất cả session/refresh và consume challenge của actor,
+  clear cookie + protected password-changed notification. Unknown/wrong/locked current password theo
+  AUTH_INVALID_CREDENTIALS; session/version stale theo AUTH_SESSION_INVALID. Không ảnh hưởng user khác.
+- Change/Reauthenticate áp quota Login IP + SQL account lockout; chúng không nhận email từ client để
+  chọn partition/actor. Forgot/Reset không dùng ambient cookie để authorize; Change/Reauthenticate có
+  X-CSRF-TOKEN + context cookie/origin khi module Refresh bật.
+- Email P08 có outbox kind PasswordEmail và Data Protection purpose riêng, tách email verify P05.
+  Reset link `ResetUrl#token=...`, client POST token; notification không chứa token/password/hash.
+  Worker send sau commit với lease/retry, discard reset expired/replaced/consumed/version mismatch.
+  Notification tham chiếu audit completion, gửi tới mailbox verified hiện tại; không suppress vì một
+  password mutation mới hơn đã xảy ra. Delivery at-least-once, không bảo đảm recipient đã nhận.
+
+## 7. RBAC matrix
 
 | Hành vi | Anonymous | User | Admin |
 |---|---|---|---|
