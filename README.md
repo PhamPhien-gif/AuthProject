@@ -2,7 +2,7 @@
 
 Backend Auth ASP.NET Core, SQL Server, EF Core + LINQ, tổ chức theo Layered Architecture
 bằng folder trong một project ứng dụng `AuthProject`. Project xUnit tách riêng để kiểm thử.
-Phạm vi hiện tại: **P04 — rate limiting, SQL lockout, trusted proxy và kiểm tra credentials**, chưa triển khai endpoint Auth.
+Phạm vi hiện tại: **P06 — Register/Verify/Resend, Login, JWT authentication và GetMe**; refresh/logout/MFA còn chờ bước tương ứng.
 
 ## Đọc theo thứ tự
 
@@ -15,6 +15,8 @@ Phạm vi hiện tại: **P04 — rate limiting, SQL lockout, trusted proxy và 
 7. [Kết quả P02 và cách mở rộng nền tảng API](Docs/07-P02-RESULTS.md).
 8. [Kết quả P03, migration và cách dùng persistence/audit](Docs/08-P03-RESULTS.md).
 9. [Kết quả P04, quota, lockout và trusted proxy](Docs/09-P04-RESULTS.md).
+10. [Kết quả P05, endpoint đăng ký/xác minh và cấu hình SMTP](Docs/10-P05-RESULTS.md).
+11. [Kết quả P06, RSA key, Login/GetMe và kiểm chứng JWT](Docs/11-P06-RESULTS.md).
 
 ## Đã khởi tạo
 
@@ -30,9 +32,13 @@ Phạm vi hiện tại: **P04 — rate limiting, SQL lockout, trusted proxy và 
 Đã có entities, DbContext/configurations, migration và SQL script idempotent, repository EF + LINQ,
 IdentityV3 password hasher, audit SQL/outbox mã hóa và adapter log4net. Persistence và file sink
 mặc định tắt; không tự migrate database khi startup. Worker delivery thuộc P12.
-Chưa có endpoint Auth hay kết nối JWT/SMTP/Google thực tế.
+Đã có endpoint Register/Verify/Resend, MailKit SMTP adapter và worker email outbox.
+Registration mặc định tắt; cần bật persistence/email và cấu hình đầy đủ để sử dụng.
+Đã có JWT RS256 + SQL session validation mỗi request; Google/MFA chưa triển khai.
+Login/JWT mặc định tắt, cần bật persistence và cấu hình RSA private key/issuer/audience.
+Worker delivery audit log4net vẫn thuộc P12.
 Limiter IP/account/session đã có, cùng SQL lockout atomic, dummy hash và cấu hình trusted proxy.
-Swagger chưa có operation nghiệp vụ. Các endpoint probe chỉ nằm trong project test.
+Swagger có năm operation P05/P06 và Bearer authorization. Các endpoint probe chỉ nằm trong project test.
 
 ## Kiểm tra khung project
 
@@ -53,8 +59,8 @@ Thiếu dependency SQL sẽ fail, không tự skip.
 
 ## Cách yêu cầu triển khai
 
-Ví dụ: **“Triển khai P05 theo Docs, áp dụng TDD và báo kết quả kiểm tra.”**
+Ví dụ: **“Triển khai P07 theo Docs, áp dụng TDD và báo kết quả kiểm tra.”**
 Mỗi lần chỉ thực hiện bước được yêu cầu và dependency đã được cho phép.
-P00–P04 đã hoàn tất; có **155 test pass** (68 unit, 68 HTTP/startup, 19 SQL).
+P00–P06 đã hoàn tất; **259 test pass** (90 unit, 88 HTTP/startup, 81 SQL); xem [báo cáo P06](Docs/11-P06-RESULTS.md).
 API Development và EF CLI đọc `.env` local; xem [hướng dẫn](Docs/05-LOCAL-DEVELOPMENT.md#2-chuỗi-kết-nối-được-cung-cấp).
-P05–P13 chờ lệnh.
+P07–P13 chờ lệnh. Chưa phát hành public khi refresh/logout còn thiếu.

@@ -10,7 +10,7 @@ using Microsoft.Extensions.Options;
 namespace AuthProject.Repositories;
 
 public sealed class PasswordAttemptStore(IDbContextFactory<AuthDbContext> factory, IOptions<LockoutOptions> options,
-    IAuditPayloadProtector protector, TimeProvider clock) : IPasswordAttemptStore
+    IAuditPayloadProtector protector, TimeProvider clock, IHttpContextAccessor? http = null) : IPasswordAttemptStore
 {
     public async Task<User?> FindAsync(string email, CancellationToken cancellationToken = default)
     {
@@ -41,6 +41,13 @@ public sealed class PasswordAttemptStore(IDbContextFactory<AuthDbContext> factor
         writer.Stage(new(decision.Accepted ? AuditEventType.PasswordVerified : AuditEventType.LoginFailed,
             decision.Accepted ? AuditOutcome.Pending : AuditOutcome.Failure, decision.Reason, traceId, decision.Accepted ? user?.Id : null, user?.Id,
             new(Method: AuthenticationMethod.Password)));
+        if (!decision.Accepted)
+        {
+            var agent = http?.HttpContext?.Request.Headers.UserAgent.ToString();
+            context.LoginHistories.Add(new LoginHistory { UserId = user?.Id, Method = AuthenticationMethod.Password,
+                Outcome = AuditOutcome.Failure, ReasonCode = decision.Reason, OccurredAt = now, TraceId = traceId,
+                IpAddress = http?.HttpContext?.Connection.RemoteIpAddress?.ToString(), UserAgent = agent is null ? null : agent[..Math.Min(agent.Length, 256)] });
+        }
         if (!previouslyLocked && user?.LockoutEnd > now)
             writer.Stage(new(AuditEventType.AccountLocked, AuditOutcome.Success, AuditReason.Locked, traceId, SubjectId: user.Id));
         await context.SaveChangesAsync(cancellationToken);

@@ -16,6 +16,8 @@ public sealed class JwtOptions
     public string KeyId { get; set; } = string.Empty;
     public int AccessTokenLifetimeSeconds { get; set; } = 300;
     public int ClockSkewSeconds { get; set; } = 30;
+    public int SessionIdleLifetimeSeconds { get; set; } = 604800;
+    public int SessionAbsoluteLifetimeSeconds { get; set; } = 2592000;
 }
 
 public sealed class EmailOptions

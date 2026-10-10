@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace AuthProject.IntegrationTests.Foundation;
 
 [ApiController]
+[Microsoft.AspNetCore.Authorization.AllowAnonymous]
 [Route("_tests/p04")]
 public sealed class BruteForceProbeController : ControllerBase
 {

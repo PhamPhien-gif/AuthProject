@@ -1,6 +1,15 @@
 using AuthProject.Configuration;
 using AuthProject.Exceptions;
 using AuthProject.Middlewares;
+using AuthProject.Security.Authentication;
+using Microsoft.OpenApi;
+
+if (args.Length == 2 && args[0] == "--generate-jwt-key")
+{
+    JwtKeyFile.Generate(args[1]);
+    Console.WriteLine("JWT key file created. Restrict its access permissions and keep it outside source control.");
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 LocalDotEnv.AddToConfiguration(builder.Configuration, builder.Environment.EnvironmentName, builder.Environment.ContentRootPath);
@@ -10,9 +19,16 @@ LocalDotEnv.AddToConfiguration(builder.Configuration, builder.Environment.Enviro
 builder.Services.AddApiFoundation(builder.Configuration);
 builder.Services.AddAuthPersistence(builder.Configuration, builder.Environment);
 builder.Services.AddBruteForceProtection(builder.Configuration);
+builder.Services.AddRegistration(builder.Configuration);
+builder.Services.AddLogin(builder.Configuration);
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme { Type = SecuritySchemeType.Http, Scheme = "bearer", BearerFormat = "JWT" });
+    options.AddSecurityRequirement(document => new OpenApiSecurityRequirement { [new OpenApiSecuritySchemeReference("Bearer", document)] = [] });
+    options.OperationFilter<AnonymousSwaggerFilter>();
+});
 
 var app = builder.Build();
 
@@ -28,6 +44,7 @@ app.UseRouting();
 app.UseRequestTimeouts();
 app.UseMiddleware<GlobalRateLimitMiddleware>();
 app.UseMiddleware<RequestFoundationMiddleware>();
+app.UseAuthentication();
 app.UseMiddleware<AuthRateLimitMiddleware>();
 
 // Configure the HTTP request pipeline.
@@ -41,7 +58,7 @@ app.UseHttpsRedirection();
 
 app.UseAuthorization();
 
-app.MapControllers();
+app.MapControllers().RequireAuthorization();
 
 app.Run();
 

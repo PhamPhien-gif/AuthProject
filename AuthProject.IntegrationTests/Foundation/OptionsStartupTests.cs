@@ -8,14 +8,16 @@ namespace AuthProject.IntegrationTests.Foundation;
 public sealed class OptionsStartupTests
 {
     [Fact]
-    public async Task Startup_WhenModulesConfigured_ValidatesWithoutActivatingAuthOrContactingProviders()
+    public async Task Startup_WhenModulesConfigured_ValidatesKeyWithoutContactingProviders()
     {
+        using var key = new AuthProject.TestSupport.TemporaryJwtKey();
         await using var factory = FoundationFactory.Create().WithWebHostBuilder(builder =>
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Auth:Jwt:Enabled"] = "true", ["Auth:Jwt:Issuer"] = "https://issuer.example.test",
-                ["Auth:Jwt:Audience"] = "test-api", ["Auth:Jwt:SigningKeyPath"] = "test-only/key-reference.pem",
-                ["Auth:Jwt:KeyId"] = "test-key",
+                ["Auth:Jwt:Audience"] = "test-api", ["Auth:Jwt:SigningKeyPath"] = key.Path,
+                ["Auth:Jwt:KeyId"] = "test-key", ["Persistence:Enabled"] = "true",
+                ["ConnectionStrings:DefaultConnection"] = "Server=local-test-only;Database=AuthProject_Test_Config;Integrated Security=True;",
                 ["Auth:Email:Enabled"] = "true", ["Auth:Email:Host"] = "smtp.example.test",
                 ["Auth:Email:Sender"] = "sender@example.test", ["Auth:Email:Username"] = "test",
                 ["Auth:Email:Password"] = "test-only-credential",
@@ -26,7 +28,7 @@ public sealed class OptionsStartupTests
             })));
         using var client = factory.Client();
         using var response = await client.GetAsync("/api/v1/auth/me");
-        await ErrorContractTests.AssertProblem(response, 404, "RESOURCE_NOT_FOUND");
+        await ErrorContractTests.AssertProblem(response, 401, "AUTH_UNAUTHENTICATED");
     }
 
     [Theory]
@@ -42,6 +44,7 @@ public sealed class OptionsStartupTests
     [InlineData("BruteForce:RateLimit:Policies:Login:IpPermitLimit", "0")]
     [InlineData("BruteForce:Lockout:DurationSeconds", "0")]
     [InlineData("TrustedProxy:Enabled", "true")]
+    [InlineData("Auth:Registration:Enabled", "true")]
     public async Task Startup_WhenEnabledModuleOrApiLimitsInvalid_FailsWithSafeMessage(string key, string value)
     {
         await using var factory = FoundationFactory.Create().WithWebHostBuilder(builder =>

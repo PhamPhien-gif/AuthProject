@@ -31,7 +31,12 @@ public sealed class AuthWebApplicationFactory(string environment = "Testing", Sq
                 // Never inherit the developer's application database in this test host.
                 ["ConnectionStrings:DefaultConnection"] = database?.ConnectionString ?? string.Empty,
                 ["Persistence:Enabled"] = "false",
-                ["Audit:Log4Net:Enabled"] = "false"
+                ["Audit:Log4Net:Enabled"] = "false",
+                ["Auth:Jwt:Enabled"] = "false",
+                ["Auth:Registration:Enabled"] = "false",
+                ["Auth:Email:Enabled"] = "false",
+                ["Auth:Google:Enabled"] = "false",
+                ["Auth:EmailOtp:Enabled"] = "false"
             }));
         builder.ConfigureServices(services =>
         {

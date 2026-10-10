@@ -1,6 +1,6 @@
 # Kiến trúc và thiết kế bảo mật
 
-**Thiết kế toàn hệ thống; P00–P04 đã triển khai nền tảng, các flow Auth vẫn chờ lệnh.** Các giá trị timeout/quota là baseline
+**Thiết kế toàn hệ thống; P00–P06 đã triển khai, Register/Verify/Resend/Login/GetMe đã có; các flow còn lại chờ lệnh.** Các giá trị timeout/quota là baseline
 để test, sẽ điều chỉnh bằng đo đạc ở P13. Xem thứ tự triển khai ở [roadmap](01-IMPLEMENTATION-PLAN.md).
 
 ## 1. Layered Architecture
@@ -149,10 +149,14 @@ verify p50 86,2 ms, p95 264,2 ms. Đây là microbenchmark máy hiện tại, ch
 ## 5. JWT, session và revocation
 
 Access JWT baseline 5 phút, clock skew tối đa 30 giây; claims tối thiểu `sub`, `jti`, `sid`,
-`iss`, `aud`, `iat`, `nbf`, `exp`, `auth_ver`, role và authentication method khi cần.
+`iss`, `aud`, `iat`, `nbf`, `exp`, `av` (AuthVersion) và `amr` (P06: pwd).
+P06 không đưa role vào JWT; role claims được gắn từ SQL sau session validation trên mỗi request.
 Không đưa PII nhạy cảm/password/OTP vào claims. Khóa ký asymmetric RS256, `kid` và allowlist algorithm;
 reject alg=none/wrong key/issuer/audience. Secrets và private key ở env/secret store, không source.
 Key rotation giữ verification key cũ đến khi token đã phát hết hạn + skew.
+P06 mới có một active RSA key, typ at+jwt, kid bắt buộc trùng key ID; multi-key rotation thuộc P13.
+Startup kiểm tra PEM private RSA ≥ 2048 bit; CLI tạo key local 3072 bit bằng CreateNew, không ghi đè/in key.
+File PEM/key không được copy ra build/publish; deployment phải cấp key path ngoài package và ACL phù hợp.
 
 Sau kiểm tra JWT cryptographic, lấy session/user từ SQL cho **mỗi request protected**:
 session active + user active + auth version khớp. Role mutation tăng version/revoke để JWT role cũ vô hiệu.
@@ -160,6 +164,20 @@ DB validation unavailable → fail closed (503 chuẩn), không bỏ qua revocat
 nếu thêm cache sau này phải định nghĩa độ trễ revoke/invalidation đa instance.
 Logout có hiệu lực cho request được xác thực sau transaction commit; request đã chạy trước commit
 không thể bị thu hồi ngược. Thao tác cực nhạy cảm kiểm tra lại trạng thái trong transaction.
+
+P06 dùng JwtBearer 10.0.12, MapInboundClaims=false, valid algorithms chỉ RS256, valid type at+jwt,
+issuer/audience exact (không bỏ qua trailing slash), lifetime dùng TimeProvider để test boundary.
+sub/sid/jti phải Guid khác rỗng; av ≥ 1, iat hợp lệ/không tương lai; claims cần thiết không được trùng.
+Authorization header giới hạn 8192 ký tự; không nhận JWT query/cookie. Callback 401/403 qua ProblemDetails,
+không trả raw token/security exception. Key không nạp khi module tắt.
+
+Password gate commit primary-factor audit/counter ở transaction P04. LoginStore tạo transaction mới,
+khóa lại User và kiểm tra trạng thái/version/lockout trước rehash + session/history/audit commit.
+Signing/audit/save failure rollback transaction completion; primary-factor audit đã commit vẫn giữ lại.
+Account MFA không tạo full session, chỉ history Pending + 403 step-up đến P09; không giả tạo OTP challenge.
+Idle/absolute session expiry được tính tại login, mặc định 7/30 ngày; P06 chưa extend idle/LastSeenAt mỗi request.
+Refresh digest dự phòng được tạo từ 32 random bytes rồi bỏ secret, chưa gửi cookie hoặc cho client refresh.
+Rotation/logout/CSRF ở P07 phải hoàn tất trước phát hành public.
 
 Refresh token: ít nhất 32 random bytes CSPRNG → Base64URL; DB lưu SHA-256 digest, không plaintext.
 Hash nhanh phù hợp token entropy cao; không dùng thiết kế này cho OTP/password entropy thấp.
@@ -273,6 +291,24 @@ Middleware chạy trước quota IP và HTTPS redirect; proxy phải xử lý he
 Tham khảo [Microsoft forwarded headers](https://learn.microsoft.com/en-gb/aspnet/core/host-and-deploy/proxy-load-balancer?view=aspnetcore-10.0).
 
 ## 10. Audit và vận hành
+
+P05 thêm email outbox riêng: payload Data Protection purpose `AuthProject.VerificationEmail.v1`,
+challenge chỉ lưu SHA-256 digest của 32 random bytes; raw token chỉ trong protected payload/email.
+User pending + default User role + challenge + audit/outbox cùng commit. Register khóa range email
+bằng `UPDLOCK,HOLDLOCK`; Resend/Verify khóa User trước challenge để serialize state transitions.
+Resend invalidate các token verify chưa consume, không reset send budget 3 email/900 giây.
+Verify một lần, ràng buộc purpose/expiry/AuthVersion; chưa tạo session hoặc login success.
+
+SMTP adapter MailKit yêu cầu TLS (465 SSL-on-connect, port khác mandatory STARTTLS), giữ certificate
+validation mặc định. Link base là HTTPS URL cấu hình cố định, không lấy Host header;
+token nằm fragment để client POST xác minh, không nằm HTTP query. P05 chưa tạo trang frontend.
+Email worker claim bằng conditional rowversion trong transaction ngắn; lưu lease 120 giây,
+send timeout 30 giây, retry exponential 30–900 giây, tối đa 10 attempts. Trước send, khóa User và
+kiểm tra challenge/current lease; giữ user lock trong SMTP send để serialize với resend/verify.
+Đây là tradeoff giữ SQL connection/lock khi gửi, cần đo ở P13. Không xử lý outbox Audit ở worker này.
+Delivery at-least-once: crash sau SMTP accept trước SQL acknowledgment có thể gửi lặp; stable Message-ID
+không bảo đảm provider deduplicate. Event quá 10 attempts vẫn pending để điều tra/requeue có kiểm soát;
+monitoring/cleanup/delivery audit worker hoàn thiện ở P12.
 
 Events: registration/verification, password login failure/success, MFA challenge/failure/success,
 refresh rotated/reuse, logout/revoke, recovery/password changed, role/status mutation,

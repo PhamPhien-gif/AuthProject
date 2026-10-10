@@ -1,14 +1,16 @@
 # Chạy local và cấu hình
 
-## 1. Trạng thái hiện tại: P04
+## 1. Trạng thái hiện tại: P06
 
 `global.json` chọn SDK **10.0.401** + latestPatch, mọi project target `net10.0` qua
 `Directory.Build.props`. IDE phải hỗ trợ SDK này; CLI là cách build đã được kiểm chứng.
 Phiên bản NuGet nằm ở `Directory.Packages.props`, dependency graph ở từng `packages.lock.json`.
 API có Swagger, DTO/FluentValidation, ProblemDetails, exception handler, options và request limits;
 đã có entities, DbContext/migration, repositories, password hasher, audit/outbox và log4net adapter;
-chưa có Auth endpoint. Persistence và file sink mặc định tắt.
+đã có endpoint Register/Verify/Resend và SMTP email worker. Registration, persistence và file sink mặc định tắt.
 Rate limiting mặc định bật; đã có SQL lockout, credential gate và trusted proxy options.
+Swagger có năm operation P05/P06 và Bearer; Login/JWT/GetMe đã có, Google/MFA/refresh/logout chưa triển khai.
+JWT mặc định tắt cho đến khi đủ persistence, issuer/audience/RSA private key.
 Không cần kết nối SQL/SMTP/Google để build hoặc mở Swagger; SQL chỉ cần cho nhóm test SQL.
 
 ```powershell
@@ -297,3 +299,132 @@ xử lý header client để không giả địa chỉ nguồn. Peer không thu�
 P04 chưa mở endpoint login/register/refresh thực tế. Credential gate cần persistence khi được dùng
 ở P06: bật `Persistence__Enabled=true`, giữ Data Protection keys và apply migration ở mục 4.
 EF update đọc `.env` Development dù persistence flag đang tắt; không cần tạo lại migration.
+
+## 11. Bật Register/Verify/Resend P05
+
+Release P05: **77 unit + 81 HTTP/startup + 38 SQL = 196 passed**, 0 failed/skipped;
+build 0 warning/error, restore locked-mode pass, dependency audit không thấy advisory ở thời điểm kiểm tra.
+Reports ở `TestResults/P05/`; [báo cáo P05](10-P05-RESULTS.md) ghi giới hạn và bằng chứng TDD.
+P05 không có migration mới; database phải có schema P03/P04. Chưa tự update DB ứng dụng.
+
+MailKit **4.17.0** đã pin và cập nhật lock files. Các flag mặc định tắt để không gửi email khi chưa
+cấu hình. Trong `.env` hiện có, thêm/sửa cấu hình theo mẫu sau bằng thông tin SMTP của bạn:
+
+```dotenv
+Persistence__Enabled=true
+Auth__Registration__Enabled=true
+Auth__Email__Enabled=true
+Auth__Email__Host='smtp.your-provider.example'
+Auth__Email__Port=587
+Auth__Email__UseTls=true
+Auth__Email__Sender='no-reply@your-domain.example'
+Auth__Email__Username='your-smtp-username'
+Auth__Email__Password='your-actual-smtp-password'
+Auth__Registration__VerificationUrl='https://your-client.example/verify-email'
+```
+
+Thay toàn bộ placeholder bằng cấu hình riêng, không commit `.env`. Production dùng secret store,
+giữ Data Protection key directory bền vững/ACL đúng như mục 4. Không sửa/xóa key đang bảo vệ email pending.
+Port 465 dùng SSL-on-connect; port khác yêu cầu STARTTLS, không fallback plaintext hoặc bỏ certificate validation.
+Thiếu persistence/email/HTTPS URL hoặc giới hạn sai khi bật Registration sẽ fail startup với thông báo an toàn.
+API khi module tắt: input hợp lệ trả 503; input sai vẫn nhận lỗi validation/model binding P02.
+
+Restart API sau chỉnh config:
+
+```powershell
+dotnet run --project AuthProject --launch-profile https
+```
+
+Dùng Swagger để `POST /api/v1/auth/register` với email/password/displayName, nhận generic 202.
+User mặc định role User, pending verification; email được worker gửi sau transaction commit.
+Email chứa link `VerificationUrl#token=...`: URL phải là trang client do bạn kiểm soát.
+Trang client đọc fragment và `POST /api/v1/auth/email/verify` với JSON `{"token":"..."}`.
+Nếu chưa có frontend, lấy token từ fragment trong email và gửi bằng Swagger; backend chưa cung cấp
+trang xác minh, GET link không tự consume token. Không đưa token vào query/request logs.
+Verify thành công 204, replay/expired/invalid 400 AUTH_CHALLENGE_INVALID; chưa phát JWT/session.
+
+`POST /api/v1/auth/email/resend` nhận email, cùng 202 cho unknown/verified/disabled/cooldown/budget.
+Mặc định cooldown 60 giây, tối đa 3 email/account/900 giây (bao gồm Register), token hết hạn 3600 giây.
+Resend thay token và vô hiệu các token verify cũ. Limiter P04 vẫn áp dụng và có thể trả 429.
+
+Worker poll 5 giây, tối đa 10 message/lượt, lease 120 giây, send timeout 30 giây;
+SMTP lỗi retry 30–900 giây, tối đa 10 attempts. User đã commit không bị mất/tạo thêm khi SMTP lỗi.
+Email expired/replaced/consumed bị đánh dấu processed và không gửi; ProcessedAt có nghĩa xử lý xong,
+không phải bằng chứng recipient đã nhận. Audit outbox vẫn chờ worker P12.
+Record đạt 10 attempts vẫn pending, cần operator điều tra và requeue đúng ID sau sửa nguyên nhân;
+không tự reset toàn outbox. Lease còn hạn được tôn trọng, lease hết hạn được reclaim.
+
+Delivery at-least-once có thể gửi lặp khi process crash sau SMTP accept trước SQL ack;
+stable Message-ID không bảo đảm SMTP provider deduplicate. Worker giữ SQL user lock trong send
+để serialize với resend/verify; giới hạn throughput cần đo ở P13. SMTP/provider thật chưa được test;
+test suite dùng fake transport, không gửi email ra ngoài.
+
+## 12. Bật Login/JWT/GetMe P06
+
+P06 không có migration mới. Database cần schema P03/P04 và user đã xác minh email.
+Regression Release: **90 unit + 88 HTTP/startup + 81 SQL = 259 passed**, 0 failed/skipped;
+build 0 warning/error, restore locked-mode pass, dependency audit không có advisory từ nguồn đang dùng.
+Login không yêu cầu SMTP/Registration bật khi user verified đã tồn tại; đăng ký mới thì dùng P05.
+Chưa tự tạo private key, sửa `.env` hoặc update DB ứng dụng trong phiên triển khai P06.
+
+Tạo RSA private key local từ thư mục chứa solution bằng SDK hiện có, không cần OpenSSL:
+
+```powershell
+dotnet run --project AuthProject --no-launch-profile -- --generate-jwt-key AuthProject/keys/jwt-signing-key.pem
+```
+
+CLI tạo key 3072 bit, không in private key, không chạy API/worker và không ghi đè file đã tồn tại.
+File PEM/key bị Git ignore và không copy vào build/publish. Giới hạn ACL của file/key directory
+cho đúng tài khoản chạy API; production mount/provision key riêng ngoài publish output.
+Đường dẫn CLI tính từ working directory; `SigningKeyPath` tương đối tính từ content root `AuthProject/`.
+
+Trong `.env` hiện có, thêm/sửa các key này bằng issuer/audience/key ID riêng của bạn:
+
+```dotenv
+Persistence__Enabled=true
+Auth__Jwt__Enabled=true
+Auth__Jwt__Issuer='https://your-auth.example'
+Auth__Jwt__Audience='your-api'
+Auth__Jwt__SigningKeyPath='keys/jwt-signing-key.pem'
+Auth__Jwt__KeyId='local-rsa-1'
+Auth__Jwt__AccessTokenLifetimeSeconds=300
+Auth__Jwt__ClockSkewSeconds=30
+Auth__Jwt__SessionIdleLifetimeSeconds=604800
+Auth__Jwt__SessionAbsoluteLifetimeSeconds=2592000
+```
+
+Issuer là HTTPS identifier cố định của hệ thống, không phải yêu cầu truy cập URL đó để validate;
+JWT local không dùng discovery/JWKS remote. Audience là identifier của API; issuer/audience match exact.
+Key ID tối đa 64 ký tự ASCII letter/digit/`-_.`; private key PEM RSA ≥ 2048 bit.
+Thiếu key, public-only/weak key, thiếu persistence hoặc config sai sẽ fail startup với lỗi an toàn.
+Restart khi đổi key/config; P06 chỉ có một active key, chưa có multi-key rotation.
+
+Chạy API bằng HTTPS profile, mở Swagger:
+
+```powershell
+dotnet run --project AuthProject --launch-profile https
+```
+
+`POST /api/v1/auth/login` với email/password của user Active + verified → 200 accessToken/tokenType/
+expiresIn/user. Không có refresh cookie ở P06. Trong Swagger, bấm Authorize và dán access JWT
+(không cần gõ thêm `Bearer`), rồi gọi `GET /api/v1/auth/me`.
+Không token hoặc token/session không hợp lệ → 401 ProblemDetails + WWW-Authenticate: Bearer;
+Me chỉ trả profile/roles hiện tại của actor, không password hash/token digest/security version.
+Token nhận qua Authorization header, không query/cookie; response thành công có no-store.
+
+Sai/unknown/locked/disabled/unverified/Google-only cùng AUTH_INVALID_CREDENTIALS 401.
+User đã bật MFA nhận AUTH_STEP_UP_REQUIRED 403 sau password đúng; chưa có OTP challenge/cấp phiên
+đến P09, không có đường tắt bypass MFA. JWT module tắt: Login input hợp lệ 503, Me không token 401.
+Role authorization cơ bản đã có, roles lấy từ SQL mỗi request; admin APIs/step-up thuộc P11.
+
+SQL session validation kiểm tra status/email confirmation/AuthVersion/MFA/revoke/idle/absolute trên
+mỗi bearer request. Lỗi DB lookup fail closed 503; không cache active state. Clock skew áp dụng JWT
+nhưng session expiry dùng boundary UTC chính xác. P06 chưa extend idle/LastSeenAt theo request.
+Rehash/session/digest/history success/audit completion cùng transaction; primary-factor counter/audit
+đã commit trước đó theo P04, không rollback sự kiện primary factor khi completion lỗi.
+History ghi failure cho password gate, Pending cho MFA primary factor, Success khi session commit;
+history query API/log4net delivery vẫn thuộc P12.
+
+Refresh digest hiện là record dự phòng, secret bị bỏ sau hash; client chưa dùng được để refresh.
+P07 hoàn thiện cấp refresh cookie, rotation, reuse detection, revoke/logout và CSRF trước public release.
+Kết quả test và bằng chứng TDD: [báo cáo P06](11-P06-RESULTS.md), reports `TestResults/P06/`.

@@ -1,6 +1,6 @@
 # API, DTO và lỗi thống nhất
 
-**P02 đã triển khai request DTOs, validation và hợp đồng lỗi; chưa có endpoint Auth nào dưới đây.** Prefix `/api/v1`.
+**P06 đã triển khai Register, Verify Email, Resend, Login và GetMe; các endpoint còn lại chờ bước tương ứng.** Prefix `/api/v1`.
 JSON camelCase, UTC ISO-8601, ID opaque/Guid. Thành công dùng DTO trực tiếp, không bọc mọi
 response trong `success/message/data`; lỗi dùng `application/problem+json` thống nhất.
 
@@ -84,6 +84,14 @@ hoặc tra password bị lộ. Validators không sửa dữ liệu: service P05 
 trim displayName trước lưu; password luôn giữ nguyên. Role catalog P02 là User/Admin.
 Unknown property bất kỳ trong security JSON DTO bị reject, không chỉ các field nhạy cảm.
 
+P05: ba endpoint Register/Verify/Resend giữ hợp đồng ở trên, `Cache-Control: no-store`.
+Khi Registration chưa bật, input hợp lệ trả `503 SERVICE_UNAVAILABLE`; input sai vẫn được filter P02 xử lý.
+Verify token sai/expired/replay/wrong purpose/security version hoặc account không pending trả
+`400 AUTH_CHALLENGE_INVALID`. Verify dùng POST JSON, không có GET tự consume token.
+Resend áp dụng cooldown 60 giây, tối đa 3 email/900 giây/account (tính cả Register); bị budget chặn
+vẫn generic 202. IP/account limiter P04 có thể trả 429 độc lập với send budget SQL.
+Không trả userId, challengeId, token hay mailbox ở Register/Resend; chưa có JWT/session.
+
 ## 3. Response thành công mẫu
 
 AuthResult (200):
@@ -98,6 +106,8 @@ AuthResult (200):
 ```
 
 Refresh token chỉ trong Set-Cookie HttpOnly theo browser baseline; không trong JSON.
+P06 chỉ trả access token và profile, chưa có refresh cookie/token dùng được; flow này thuộc P07.
+Account đã bật MFA nhận 403 AUTH_STEP_UP_REQUIRED sau password hợp lệ, chưa có challenge/tokens đến P09.
 Token response có `Cache-Control: no-store`. Register/forgot/resend cùng generic 202
 `{"message":"Nếu yêu cầu hợp lệ, hướng dẫn sẽ được gửi đến email của bạn."}`.
 
@@ -118,6 +128,14 @@ Không trả mailbox mask trước khi primary factor đã hợp lệ.
 MeResponse gồm id/email/displayName/roles/emailVerified/mfaEnabled/createdAt;
 không trả hash, security version, provider secret, challenge digest hay failed-login counter.
 Paged response: `{ "items": [], "page": 1, "pageSize": 20, "totalCount": 0 }`.
+
+P06: GetMe nhận actor từ validated `sub`, không dùng userId query để chọn user khác. Token chỉ nhận
+từ Authorization: Bearer; không query/cookie. Mọi controller endpoint mặc định require auth qua
+MapControllers.RequireAuthorization(), anonymous explicit bằng AllowAnonymous. Route không tồn tại vẫn 404.
+JWT/session không hợp lệ trả 401 AUTH_UNAUTHENTICATED + WWW-Authenticate: Bearer; thiếu role trả
+403 AUTH_FORBIDDEN. Session lookup gặp lỗi DB trả safe 503, không bỏ qua kiểm tra revoke.
+Login credential sai/unknown/locked/disabled/unverified/Google-only vẫn chung AUTH_INVALID_CREDENTIALS 401.
+Module JWT tắt: Login hợp lệ trả 503, GetMe không token trả 401. Swagger có Bearer; anonymous operations không yêu cầu token.
 
 ## 4. Hợp đồng lỗi
 

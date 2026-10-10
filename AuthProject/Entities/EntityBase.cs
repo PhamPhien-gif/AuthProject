@@ -16,7 +16,7 @@ public enum AuthenticationMethod { Password, Google, EmailOtp, RecoveryCode }
 public enum AuditOutcome { Success, Failure, Pending }
 public enum AuditEventType
 {
-    Registered, EmailVerified, LoginFailed, PasswordVerified, LoginCompleted, MfaChallenged, MfaFailed, MfaVerified,
+    Registered, EmailVerified, EmailVerificationRequested, LoginFailed, PasswordVerified, LoginCompleted, MfaChallenged, MfaFailed, MfaVerified,
     RefreshRotated, RefreshReused, SessionRevoked, PasswordChanged, PasswordReset,
     RoleChanged, UserStatusChanged, GoogleLinked, GoogleUnlinked, AccessDenied, AccountLocked
 }

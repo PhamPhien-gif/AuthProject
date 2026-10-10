@@ -1,10 +1,12 @@
 # Kế hoạch triển khai Auth
 
-Ngày lập: 09/10/2026. Trạng thái: **P00–P04 đã triển khai, P05–P13 chờ lệnh**.
+Ngày lập: 09/10/2026. Cập nhật P06: 10/10/2026. Trạng thái: **P00–P06 đã triển khai, P07–P13 chờ lệnh**.
 Kết quả và giới hạn kiểm chứng P01: [báo cáo P01](06-P01-RESULTS.md).
 Kết quả và cách mở rộng P02: [báo cáo P02](07-P02-RESULTS.md).
 Kết quả persistence, hashing và audit: [báo cáo P03](08-P03-RESULTS.md).
 Kết quả chống brute force, lockout và proxy: [báo cáo P04](09-P04-RESULTS.md).
+Kết quả Register/Verify/Resend và SMTP outbox: [báo cáo P05](10-P05-RESULTS.md).
+Kết quả Login/JWT/GetMe và session validation: [báo cáo P06](11-P06-RESULTS.md).
 Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant hoặc microservice.
 
 ## 1. Nguyên tắc điều khiển phạm vi
@@ -25,8 +27,8 @@ Tập trung Auth; chưa thêm feature nghiệp vụ, giao diện, multi-tenant h
 | P02 | Bắt buộc | DTO validation, lỗi thống nhất, configuration | P01 | Hoàn tất — 76 test pass toàn solution |
 | P03 | Bắt buộc | EF/SQL, password hashing, audit nền tảng | P02 | Hoàn tất — 120 test pass sau bổ sung dotenv |
 | P04 | Bắt buộc | Rate limiting, lockout, trusted proxy | P03 | Hoàn tất — 155 test pass toàn solution |
-| P05 | Auth cơ bản | Email, Register, Verify Email | P04 | Chờ lệnh |
-| P06 | Auth cơ bản | Login, JWT, authentication, GetMe | P05 | Chờ lệnh |
+| P05 | Auth cơ bản | Email, Register, Verify Email | P04 | Hoàn tất — 196 test pass toàn solution |
+| P06 | Auth cơ bản | Login, JWT, authentication, GetMe | P05 | Hoàn tất — 259 test pass toàn solution |
 | P07 | Auth cơ bản | Rotation, reuse detection, logout/revoke | P06 | Chờ lệnh |
 | P08 | Vòng đời tài khoản | Forgot/Reset/Change password | P07 | Chờ lệnh |
 | P09 | MFA | Email OTP, enrollment, disable, recovery | P08 | Chờ lệnh |
@@ -49,7 +51,7 @@ Ghi audit bắt đầu ở P03 và được nối vào từng flow ngay khi flow
 - [x] Bỏ WeatherForecast và test rỗng từ template.
 - [x] Thêm `.gitignore`, `.editorconfig`, `.env.example`, pin SDK 8 hiện có.
 - [x] Viết Docs cho kiến trúc, API, TDD, local và roadmap.
-- [x] P01–P04 đã triển khai theo lệnh riêng; P05–P13 chưa thực hiện.
+- [x] P01–P06 đã triển khai theo lệnh riêng; P07–P13 chưa thực hiện.
 
 Nghiệm thu: restore/build được; runner xUnit chạy được nhưng chưa có test; ignore giữ lại
 source, Docs và file example, loại bỏ output/secrets. Kết quả thực tế xem [local](05-LOCAL-DEVELOPMENT.md).
@@ -150,6 +152,13 @@ Red: password yếu, role injection, duplicate khác hoa thường, resend, toke
 SMTP lỗi sau commit không làm mất user, retry outbox không tạo duplicate account.
 Nghiệm thu: chưa verified không được tạo phiên; DTO không bao giờ trả PasswordHash/token digest.
 
+Kết quả P05: có ba endpoint Register/Verify Email/Resend, DTO validation, generic 202,
+role User do server gán, token CSPRNG một lần và protected email outbox. SMTP MailKit gửi sau commit,
+worker có lease, retry/backoff, bỏ email expired/replaced/consumed. Register/Verify/Resend dùng
+SQL transaction + user/range locks để giữ invariant khi đồng thời; chưa tạo session/JWT.
+Không cần migration mới, sử dụng schema P03/P04; chưa update DB ứng dụng hoặc gửi SMTP thật.
+Chi tiết Red/Green, regression và cấu hình: [kết quả P05](10-P05-RESULTS.md).
+
 ### P06 — Login, JWT và GetMe
 
 1. Verify password, trạng thái account, confirmed email; cập nhật counter/rehash đúng transaction.
@@ -162,6 +171,15 @@ Nghiệm thu: chưa verified không được tạo phiên; DTO không bao giờ 
 Red: credentials sai/unknown/locked; disabled/unverified; JWT giả/sai issuer/audience/expired;
 revoked session; GetMe không có token → 401; profile không lộ secrets.
 Nghiệm thu: chưa phát hành public ở bước này; API refresh/logout phải hoàn tất P07 trước release.
+
+Kết quả P06: Login/GetMe, JWT RS256 + kid/typ/claims/lifetime validation, default auth trên controller
+và role claims lấy lại từ SQL mỗi request. Session/digest refresh dự phòng/rehash/LoginHistory success/
+audit cùng commit; password gate giữ lockout/audit primary factor riêng như P04.
+GetMe chỉ lấy actor từ validated sub; revoked/disabled/unverified/version/expiry/MFA mismatch bị từ chối.
+Key private RSA được kiểm tra startup, có CLI tạo key local không ghi đè, Swagger Bearer đã có.
+Không có migration mới, refresh cookie/rotation/logout chưa mở; account MFA bị chặn với step-up thay vì bypass.
+Release: **90 unit + 88 HTTP/startup + 81 SQL = 259 passed**, 0 failed/skipped, build 0 warning/error.
+Chi tiết test, config và giới hạn: [kết quả P06](11-P06-RESULTS.md).
 
 ### P07 — Refresh rotation và logout/revoke
 

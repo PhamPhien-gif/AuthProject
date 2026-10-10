@@ -8,6 +8,7 @@ namespace AuthProject.IntegrationTests.Foundation;
 
 // Registered via ApplicationPart ONLY in the test factory. Never shipped in the API.
 [ApiController]
+[Microsoft.AspNetCore.Authorization.AllowAnonymous]
 [Route("_tests/foundation")]
 public sealed class ProbeController : ControllerBase
 {
